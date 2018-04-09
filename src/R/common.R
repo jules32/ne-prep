@@ -8,10 +8,10 @@ dir_M             <- c('Windows' = '//mazu.nceas.ucsb.edu/ohi',
                        'Darwin'  = '/Volumes/ohi',    ### connect (cmd-K) to smb://mazu/ohi
                        'Linux'   = '/home/shares/ohi')[[ Sys.info()[['sysname']] ]]
 #set additional paths
-dir_git <- '~/github/ohi-northeast'
-dir_rgn <- file.path(dir_git, 'prep/regions')  ### github: general buffer region shapefiles
+dir_prep <- '~/github/ne-prep'
+dir_rgn <- file.path(dir_prep, 'prep/regions')  ### github: general buffer region shapefiles
 dir_anx <- file.path(dir_M, 'git-annex/neprep')
-dir_calc <- file.path(dir_git, 'region2016') #where the calculations happen
+dir_calc <- '~/github/ne-scores/region2016' #where the calculations happen
 
 # WARN rather than stop if directory doesn't exist
 if (!file.exists(sprintf('%s/',dir_M))){
@@ -57,15 +57,15 @@ us_alb    <- raster::crs("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-
 
 ### useful shapefiles
 #state land boundaries
-ne_states  <- sf::st_read(dsn = paste0(path.expand(dir_git),'/spatial/shapefiles'),layer = 'states')
-rgns       <- sf::st_read(dsn = paste0(path.expand(dir_git),'/spatial/shapefiles'),layer = 'ne_ohi_rgns') #need to use path.expand because readOGR does not read '~'
-rgns_simp  <- sf::st_read(dsn = paste0(path.expand(dir_git),'/spatial/shapefiles'),layer = 'ne_ohi_rgns_simp') #need to use path.expand because readOGR does not read '~'
+ne_states  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'states')
+rgns       <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'ne_ohi_rgns') #need to use path.expand because readOGR does not read '~'
+rgns_simp  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'ne_ohi_rgns_simp') #need to use path.expand because readOGR does not read '~'
 rgn_data   <- data.frame(rgns) %>% 
   select(-geometry) %>% 
   mutate(rgn_name = as.character(rgn_name),
          state = ifelse(str_detect(rgn_name, "Massachusetts"), "Massachusetts", rgn_name))
-ocean_ne   <- raster::raster('~/github/ohi-northeast/spatial/ocean_rasters/ocean_ne.tif')
-ocean_rgns <- raster::raster('~/github/ohi-northeast/spatial/ocean_rasters/ocean_rgns.tif')
+ocean_ne   <- raster::raster('~/github/ne-prep/spatial/ocean_rasters/ocean_ne.tif')
+ocean_rgns <- raster::raster('~/github/ne-prep/spatial/ocean_rasters/ocean_rgns.tif')
 zones      <- ocean_rgns #for zonal stats
 three_nm <- rgns %>% filter(rgn_id < 8)   #use the state water boundaries as the 3 nautical mile shapefile
 
@@ -88,4 +88,4 @@ ggtheme_plot <- ggtheme_basic +
 
 ### Source function that outputs a tmap score map
 
-source('~/github/ohi-northeast/src/R/plot_scores.R')
+source('~/github/ne-prep/src/R/plot_scores.R')

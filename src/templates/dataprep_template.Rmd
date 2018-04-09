@@ -11,7 +11,7 @@ output:
     theme: cerulean
     highlight: haddock
     includes: 
-      in_header: '~/github/ohi-northeast/src/templates/ohi_hdr.html'
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
   pdf_document:
     toc: true
 ---
@@ -29,11 +29,11 @@ knitr::opts_chunk$set(fig.width = 6, fig.height = 4, fig.path = 'Figs/',
                       echo = FALSE, message = FALSE, warning = FALSE)
 
 
-dir_git <- '~/github/ohi-northeast'
+dir_git <- '~/github/ne-prep'
 #dir_rgn <- file.path(dir_git, 'prep/regions')  ### github: general buffer region shapefiles
 dir_anx <- file.path(dir_M, 'git-annex/neprep')
 
-source('~/github/ohi-northeast/src/R/common.R'))  ### an OHINE specific version of common.R
+source('~/github/ne-prep/src/R/common.R'))  ### an OHINE specific version of common.R
 
 ### goal specific folders and info
 goal      <- 'tr'
