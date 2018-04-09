@@ -1,0 +1,77 @@
+---
+title: 'OHI-Northeast: Mariculture'
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: true
+    theme: cerulean
+    highlight: haddock
+    includes: 
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
+  pdf_document:
+    toc: true
+---
+
+``` {r setup, echo = FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(fig.width = 6, fig.height = 4, fig.path = 'figs/',
+                      echo = TRUE, message = FALSE, warning = FALSE)
+
+
+source('~/github/ne-prep/src/R/common.R')  ### an OHINE specific version of common.R
+
+dir_git <- '~/github/ne-prep'
+dir_anx <- file.path(dir_M, 'git-annex/neprep')
+
+### goal specific folders and info
+goal      <- 'mar'
+scenario  <- 'v2017'
+dir_goal  <- file.path(dir_git, 'prep', goal, scenario)
+dir_goal_anx <- file.path(dir_anx, goal, scenario)
+
+```
+
+#Summary
+
+This script explores the mariculture data gathered by Kate Longley-Wood at the beginning of the project.
+
+***
+
+#Production
+
+```{r production}
+
+data <- read_csv("data_from_kate/production.csv", col_types = list(
+  `Biomass (tons)` = col_double())) %>%
+  rename(tons = `Biomass (tons)`) %>%
+  select(Year, Region, Species, tons) %>%
+  filter(Region == "Maine",
+         Year > 2000,
+         !is.na(tons),
+         Species %in% c("American Oyster", "Atlantic Salmon", "Blue Mussel"))
+
+ggplot(data, aes(x = Year, y = tons, color = Species)) +
+  geom_line() +
+  theme_bw() +
+  ylab("Production (tons)") +
+  ggtitle("Maine")
+```
+
+#Area
+
+```{r area}
+
+area <- read_csv("data_from_kate/area.csv") %>%
+  rename(area = `Farmable area (km2)`) %>%
+  select(Year, Region, Species, area) %>%
+  filter(Region == "Rhode Island")
+
+ggplot(area, aes(x = Year, y = area, color = Species)) +
+  geom_line() +
+  theme_bw() +
+  ylab("Farmable Area (km2)") +
+  ggtitle("Rhode Island")
+```
