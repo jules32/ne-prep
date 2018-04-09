@@ -17,7 +17,7 @@ output:
 ---
 
 ``` {r setup, echo = FALSE, message = FALSE, warning = FALSE}
-knitr::opts_chunk$set(fig.width = 6, fig.height = 4, fig.path = 'figs/',
+knitr::opts_chunk$set(fig.width = 5, fig.height = 5, fig.path = 'figs/',
                       echo = TRUE, message = FALSE, warning = FALSE)
 
 
@@ -57,7 +57,9 @@ ggplot(data, aes(x = Year, y = tons, color = Species)) +
   geom_line() +
   theme_bw() +
   ylab("Production (tons)") +
-  ggtitle("Maine")
+  ggtitle("Maine") + 
+  theme(legend.position = "bottom") +
+  scale_color_discrete("")
 ```
 
 #Area
@@ -73,5 +75,7 @@ ggplot(area, aes(x = Year, y = area, color = Species)) +
   geom_line() +
   theme_bw() +
   ylab("Farmable Area (km2)") +
-  ggtitle("Rhode Island")
+  ggtitle("Rhode Island") + 
+  theme(legend.position = "bottom") +
+  scale_color_discrete("")
 ```
