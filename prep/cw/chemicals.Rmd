@@ -41,7 +41,7 @@ The dataset is downloaded from [this website](https://products.coastalscience.no
 
 knitr::opts_chunk$set(fig.width = 7, fig.height = 7,message = FALSE, warning = FALSE)
 
-source('~/github/ohi-northeast/src/R/common.R')
+source('~/github/ne-prep/src/R/common.R')
 
 library(tidyverse)
 library(plotly)
@@ -53,22 +53,17 @@ To get a sense of the data, we can plot the sampling sites over our defined regi
 
 ```{r plot_sites}
 
-locs <- df%>%
+locs <- df %>%
         dplyr::select(NST_Site, General_Location, Specific_Location, Latitude, Longitude)%>%
         unique()
 
-locs <- SpatialPointsDataFrame(locs[,c(5,4)], locs, proj4string = crs(p4s_wgs84))%>%
-  spTransform(.,crs(rgns_simp))
+loc <- st_as_sf(locs[, c(5, 4)], coords = c("Longitude", "Latitude"), crs = p4s_wgs84)
 
-#plot regions, add sampling sites
-tm_shape(rgns_simp)+
-  tm_polygons("rgn_name", title = "Regions", palette = 'Blues')+
-tm_shape(locs)+
-  tm_dots(size = 0.05, col = 'red', title = "MusselWatch sites")+
-  tm_layout(legend.text.size = 0.8,
-            legend.position = c("left","top"),
-            legend.bg.color = "white",
-            legend.bg.alpha = 0)
+ggplot() +
+  geom_sf(data = ne_states %>% filter(!STUSPS %in% c("NJ", "PA")), colour = "lightgray", fill = "beige") +
+  geom_sf(data = loc, colour = "red", fill = NA) +
+  theme_bw() + 
+  coord_sf(crs = st_crs(ne_states), datum = NA)
 
 ```
 
@@ -78,25 +73,21 @@ After looking at the sampling sites, it's clear some are not in our region of in
 
 ```{r}
 
-df <- df%>%
+df <- df %>%
         filter(!NST_Site %in% c('AIAC','BIBL','DBCM',"NYLB","NYSH","NYSR","GRTSI","GRTWI","GRTIW","HRAI","HRSW","HRWF","HRE_16a","HRE_16b","HRE_23a","HRE_30a","HRE_30b","HRE_30c","NEB_01","NEB_03","NEB_05","NEB_07a","NEB_07b","NEB_07c","NEB_08a","NEB_08b","NEB_10","NEB_11","NEB_12","NEB_14","NEB_17","NEB_20","NEB_21","NEB_26","NEB_31","NEB_36","HRUB","HREI","HUDIC","HRE_1a","HRCI","HRPK","HRPK_DS", "HRPK_SED","LEDK","LOCV","LOOC","LOOS","LORC","NRNF","LEDK_DS","LEDK_SED","LOCV_DS","LOCV_SED","LOCV_1SED","LOOC_DS","LOOC_1SED","LOOS_DS","LORC_DS","LORC_SED","NRNF_DS","NRNF_SED","LEBU_DS","LEBU_SED","LOEC_DS","LOEC_SED","LOOR_DS","LOOR_SED","LOSL_DS","LOSL_SED","LONH","ON64b"))
 
-locs <- df%>%
-        dplyr::select(NST_Site, General_Location, Specific_Location, Latitude, Longitude)%>%
+locs <- df %>%
+        dplyr::select(NST_Site, General_Location, Specific_Location, Latitude, Longitude) %>%
         unique()
 
-locs <- SpatialPointsDataFrame(locs[,c(5,4)], locs, proj4string = crs(p4s_wgs84))%>%
-  spTransform(.,crs(rgns_simp))
+loc <- st_as_sf(locs, coords = c("Longitude", "Latitude"), crs = p4s_wgs84) %>%
+  st_transform(st_crs(ne_states))
 
-#plot regions, add sampling sites
-tm_shape(rgns_simp)+
-  tm_polygons("rgn_name", title = "Regions", palette = 'Blues')+
-tm_shape(locs)+
-  tm_dots(size = 0.05, col = 'red', title = "MusselWatch sites")+
-  tm_layout(legend.text.size = 0.8,
-            legend.position = c("left","top"),
-            legend.bg.color = "white",
-            legend.bg.alpha = 0)
+ggplot() +
+  geom_sf(data = ne_states %>% filter(!STUSPS %in% c("NJ", "PA")), colour = "lightgray", fill = "beige") +
+  geom_sf(data = o, colour = "red", fill = NA) +
+  theme_bw() + 
+  coord_sf(crs = st_crs(ne_states), datum = NA)
 
 ```
 
@@ -108,26 +99,22 @@ Since the MusselWatch data does not come with State names (surprisingly) we can 
 
 #use the over function from the sp package
 
-o <- over(locs,rgns_simp)%>%
-      select(-rgn_id)
-
-#turn factors to chars
-o$rgn_name = as.character(o$rgn_name)
-
-#combine the intersected data with the shapefile attribute table to add the state names
-
-state_locs <- cbind(locs@data,o)
+o <- st_intersection(loc, rgns_simp)
 ```
 
 ###Fix missing state names
 
 There are still some NAs for rgn_name, likely due to weird overlay issues that don't allow the intersection function to pick it up. We can fix these manually. I've pulled out all rows without a State name, looked at each specific location and identified the state to which it belongs.
 
+** THIS IS NOT UPDATED FROM HERE DOWN - NEED TO FIGURE OUT MISSING DATA AND RERUN **
+
 ```{r missing_state_names}
 
-missing <- state_locs%>%
-            filter(is.na(rgn_name))%>%
-            dplyr::select(NST_Site,rgn_name)%>%
+# look for points that may not have made it in the intersection and then manually assign region
+
+missing <- left_join(locs, o) %>%
+            filter(is.na(rgn_abrev)) %>%
+            dplyr::select(NST_Site, rgn_name) %>%
             mutate(State = c("New York",
                              "New York",
                              "New York",
@@ -171,7 +158,7 @@ missing <- state_locs%>%
 
 # For all rows where rgn_name is NA, match the NST_Site with the same site in the dataframe 'missing'
 
-state_locs <- state_locs%>%
+state_locs <- o %>%
               mutate(rgn = ifelse(is.na(rgn_name),missing$State[match(.$NST_Site,missing$NST_Site)],rgn_name))%>%
               dplyr::select(-rgn_name,-area_km2)%>%
               rename(rgn_name = rgn)%>%
