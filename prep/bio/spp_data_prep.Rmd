@@ -17,7 +17,7 @@ output:
 ---
 
 ``` {r setup, echo = FALSE, message = FALSE, warning = FALSE}
-knitr::opts_chunk$set(fig.width = 6, fig.height = 4, fig.path = 'Figs/',
+knitr::opts_chunk$set(fig.width = 6, fig.height = 4, fig.path = 'figs/',
                       echo = FALSE, message = FALSE, warning = FALSE)
 
 library(sp)
@@ -53,7 +53,7 @@ source('functions.R')
 # Summary: OHI-Northeast Species Subgoal (Biodiversity)
 
 This script prepares scores (status and trend) for species richness in 
-the US Northeast's coastal regions.  Spatial data from IUCN and Aquamaps is
+the US Northeast's coastal regions. Spatial data from IUCN and Aquamaps is
 combined with extinction risk information from IUCN.
 
 Currently, the Species Richness sub-goal model is identical to the OHI Global 
