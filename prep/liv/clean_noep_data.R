@@ -20,7 +20,7 @@ out <- map_df(files, read_csv) %>%
          Employment     = as.numeric(gsub(",", "", Employment)),
          Wages          = gsub(",", "", Wages),
          GDP            = gsub(",", "", GDP)) %>%
-  mutate(Wages          = gsub("[\\$,]", "", Wages)) %>% #doing a stepwise fix on gdp and wages for the $ and ,
-  mutate(GDP            = gsub("[\\$,]", "", GDP))
+  mutate(Wages          = as.numeric(gsub("[\\$,]", "", Wages))) %>% #doing a stepwise fix on gdp and wages for the $ and ,
+  mutate(GDP            = as.numeric(gsub("[\\$,]", "", GDP)))
 
 write_csv(out, file.path(dir_git, "prep/liv/data/clean_noep_data.csv"))
