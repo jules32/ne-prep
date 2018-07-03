@@ -20,7 +20,7 @@ output:
 ``` {r setup, echo=F, message = FALSE, warning = FALSE, results = 'hide'}
 knitr::opts_chunk$set(fig.width = 10, fig.height = 6, fig.path = 'figs/', message = FALSE, warning = FALSE)
 
-dir_git <- '~/github/ohi-northeast'
+dir_git <- '~/github/ne-prep'
 source(file.path(dir_git, 'src/R/common.R'))  ### an OHI-NE specific version of common.R
 
 library(tidyverse)
