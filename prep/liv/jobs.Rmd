@@ -169,7 +169,7 @@ jobs <- jobs_cst_ref %>%
   left_join(us_employment) %>%
   select(year, rgn_id, rgn_name, coast_job_growth, us_job_growth)
 
-write.csv(us_employment, file.path(dir_calc, "layers/le_job_growth.csv"))
+write.csv(jobs, file.path(dir_calc, "layers/le_job_growth.csv"))
 
 ```
 
