@@ -1,0 +1,159 @@
+---
+title: 'Cleaning up NOEP data'
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+    includes: 
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
+  pdf_document:
+    toc: true
+---
+
+## Summary
+
+This script takes individual state-level .csv data that were manually downloaded from NOEP (http://www.oceaneconomics.org/Market/ocean/oceanEcon.asp) and combines them and cleans them for layer preparation. This data is used to create jobs, wage and gdp layers for use in Livelihoods & Economies as well as Tourism & Recreation.
+
+## Data Source
+
+## National ocean Economics Program (NOEP)
+
+**Downloaded**: [Manually downloaded by state from website](http://www.oceaneconomics.org/Market/ocean/oceanEcon.asp) on July 3, 2018.    
+**Description**:  Total number of jobs and wages per sector for RI, ME, MA, CT, NY and NH counties from 2005 to 2015. The data also include number of establishments and GDP for each sector - state - year.  
+**Native data resolution**: County level     
+**Time range**: 2005 - 2015  
+**Format**:  Tabular  
+
+```{r, message = F, warning = F}
+knitr::opts_chunk$set(fig.width = 10, fig.height = 6, fig.path = 'figs/', message = FALSE, warning = FALSE)
+
+library(tidyverse)
+
+#load common file
+dir_git <- '~/github/ne-prep'
+source(file.path(dir_git, 'src/R/common.R'))  ### an OHI-NE specific version of common.R
+
+#set dir_anx to mazu
+dir_anx <- file.path(dir_M, 'git-annex/neprep')
+```
+
+## Get data  
+
+Load the data and fix the column classes
+```{r}
+files <- list.files(file.path(dir_anx, "_raw_data/NOEP/d2018"), full.names = T)
+
+out <- map_df(files, read_csv) %>%
+  filter(!is.na(State)) %>% #there are some NA for state because these rows have notes
+  mutate(Establishments = as.numeric(gsub(",", "", Establishments)),
+         Employment     = as.numeric(gsub(",", "", Employment)),
+         Wages          = gsub(",", "", Wages),
+         GDP            = gsub(",", "", GDP)) %>%
+  mutate(Wages          = as.numeric(gsub("[\\$,]", "", Wages))) %>% #doing a stepwise fix on gdp and wages for the $ and ,
+  mutate(GDP            = as.numeric(gsub("[\\$,]", "", GDP)))
+```
+
+Since we have two separate Massachusetts regions, we need to split the data according to how those counties border those two regions.
+
+```{r split_MA}
+# need to read in the MA counties since they are divided across two bioregions
+
+ma_ctys <- read_csv("~/github/ne-prep/src/tables/MA_counties.csv")
+
+clean_data <- out %>%
+       filter(Sector == 'All Ocean Sectors') %>%
+        left_join(rgn_data, by = c("State" = "rgn_name")) %>%
+        left_join(ma_ctys, by = c("State", "County")) %>%
+        mutate(rgn_id = ifelse(is.na(rgn_id.x), rgn_id.y, rgn_id.x),
+               rgn_name = ifelse(is.na(rgn_name), State, rgn_name)) %>%
+  select(-rgn_id.x, -rgn_id.y, -area_km2.x, -area_km2.y, -rgn_abrev.x, -rgn_abrev.y) %>%
+        mutate(Employment     = ifelse(rgn_name %in% c("Massachusetts-Gulf of Maine", "Massachusetts-Virginian"), 
+                                      Employment/2, Employment),
+               Establishments = ifelse(rgn_name %in% c("Massachusetts-Gulf of Maine", "Massachusetts-Virginian"), 
+                                       Establishments/2, Establishments),
+               Wages          = ifelse(rgn_name %in% c("Massachusetts-Gulf of Maine", "Massachusetts-Virginian"), 
+                                       Wages/2, Wages),
+               GDP            = ifelse(rgn_name %in% c("Massachusetts-Gulf of Maine", "Massachusetts-Virginian"),
+                                       GDP/2, GDP))
+```
+
+### Meta-analysis
+
+To identify inconsistencies in the data, we take a look at the reported employment values at both the county level and statewide. One would expect that the sum of the county employment values would equal what is reported for the "Statewide" employment values. It seems that this is not the case.
+
+```{r noep_state_vs_county_totals}
+
+states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "New York", "Connecticut")
+
+meta <- function(state){
+  
+  all <- clean_data %>%
+    filter(State == !!state,
+           str_detect(County, "All")) %>%
+    select(Year, Employment) %>%
+    rename(all_ctys_employment = Employment)
+  
+  out <- clean_data %>%
+    filter(State == !!state,
+           str_detect(County, "All") == FALSE) %>%
+    select(State, County, Year, Employment) %>%
+    group_by(Year) %>%
+    summarize(totals = sum(Employment, na.rm = T)) %>%
+    left_join(all) %>%
+    rename(county_totals = totals,
+           statewide = all_ctys_employment) %>%
+    gather(key = spatial_res, value = Employment, -Year) %>%
+    mutate(State = state)
+  
+  return(out)
+}
+
+t <- map_df(states, meta) %>%
+  distinct()
+
+ggplot(t, aes(x = Year, y = Employment, color = spatial_res))+
+  geom_line() +
+  facet_wrap(~State, scales = "free") +
+  scale_color_manual(" ", labels = c("Sum of county reported employment", "Statewide reported employment"), values = c("blue", "red"))
+```
+
+There are some clear discrepancies in the dataset between the total number of jobs reported at the state level ("statewide") and the sum of all employment numbers at the County level. New York and Massachusetts have parallel trends, so using either data stream should result in the same final score. New Hampshire has significantly more statewide jobs beginning in 2011 due to data supression up until that point. We can assume that if data were not suppressed pre-2011 statewide, we would also see parallel trends in New Hampshire as well. Operating under that assumption, we can use the county level data. Rhode Island, Connecticut and Maine show low employment numbers in earlier years when adding up at the county level. This could be due to a lack of data. For example, Saghadoc county in Maine has no data up until 2010, when the jump happens. This suggests we should use the statewide data for Maine. There is no missing data in Connecticut or Rhode Island. This might suggest data suppression in those earlier years at the county level. Therefore the statewide data should be used. 
+
+## Assign spatial scale to use
+
+```{r combine_noep_state_county_data}
+
+#select the data for ME, CT and RI, which is going to use the data reported for "All x counties"
+state_data <- clean_data %>%
+  filter(str_detect(County, "All"),
+         State %in% c("Maine", "Connecticut", "Rhode Island")) %>%
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment = Employment, rgn_wages = Wages, rgn_estab = Establishments)
+  
+county_data <- clean_data %>%
+  filter(str_detect(County, "All")== FALSE,
+         State %in% c("Massachusetts", "New York", "New Hampshire")) %>%
+  group_by(rgn_id, Year) %>%
+  mutate(rgn_employment = sum(Employment, na.rm = T),
+         rgn_wages = sum(Wages, na.rm = T),
+         rgn_estab = sum(Establishments, na.rm = T)) %>% #employment by region
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment, rgn_wages, rgn_estab) %>%
+  distinct()
+
+noep_data_clean <- bind_rows(state_data, county_data)
+```
+
+## Save
+
+The final output if `clean_noep_data.csv` in the data folder.
+
+```{r save}
+write.csv(noep_data_clean, "data/clean_noep_data.csv")
+```
+
+

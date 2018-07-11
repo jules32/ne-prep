@@ -1,0 +1,183 @@
+---
+title: 'Jobs data layer preparation'
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+    includes: 
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
+  pdf_document:
+    toc: true
+---
+
+
+``` {r setup, echo=F, message = FALSE, warning = FALSE, results = 'hide'}
+knitr::opts_chunk$set(fig.width = 10, fig.height = 6, fig.path = 'figs/', message = FALSE, warning = FALSE)
+
+dir_git <- '~/github/ne-prep'
+source(file.path(dir_git, 'src/R/common.R'))  ### an OHI-NE specific version of common.R
+
+library(tidyverse)
+library(readxl)
+library(DT)
+#install.packages("striprtf")
+library(striprtf)
+library(zoo)
+
+dir_anx <- file.path(dir_M, 'git-annex/neprep')
+```
+
+#Summary
+
+NOEP provides data on the number of jobs that directly or indirectly depend upon the ocean. Annual job growth is measured by comparing total employment to the previous years employment. The target for region job growth is set to be equal to or greater than the national average, calculated using data from the Bureau of Labor Statistics.
+
+***
+
+# Data Source
+
+## National ocean Economics Program (NOEP)
+
+**Downloaded**: [Manually downloaded by state from website](http://www.oceaneconomics.org/Market/ocean/oceanEcon.asp) on July 3, 2018.    
+**Description**:  Total number of jobs and wages per sector for RI, ME, MA, CT, NY and NH counties from 2005 to 2015. The data also include number of establishments and GDP for each sector - state - year.  
+**Native data resolution**: County level     
+**Time range**: 2005 - 2015  
+**Format**:  Tabular  
+
+**NOTES**
+
+The data was cleaned in the [`clean_noep_data.R`](https://github.com/OHI-Northeast/ne-prep/blob/gh-pages/prep/liv/clean_noep_data.Rmd) script.
+
+***
+
+# Jobs
+
+The livelihoods jobs score, $j '$, is calculated using the following equation; 
+
+$$j ' = \frac{\frac{C_{i}}{C_{r}}}{\frac{A_{i}}{A_{i-1}}}$$
+
+where $C_{i}$ is the number of coastal jobs in year *i*, $C_{i-1}$ is the average number of coastal jobs for the previous year, ${A_{i}}$ is the total number of jobs nationwide for year *i* and ${A_{i-1}}$ is the average number of jobs nationwide for the previous year.
+
+
+## Coastal jobs
+
+```{r coastal_data}
+noep_data = read_csv("data/clean_noep_data.csv")
+```
+
+Select just employment from the NOEP data
+
+```{r}
+coast_jobs <- noep_data %>%
+  select(-X1, -rgn_wages, -rgn_estab)
+```
+
+Plot 
+
+```{r rgn_coastal_employment}
+ggplot(coast_jobs, aes(x = year, y = rgn_employment)) +
+  geom_line()+
+  facet_wrap(~ rgn_name, scales = "free") +
+  ylab("Number of jobs") + 
+  xlab("Year") +
+  theme_bw() +
+  ggtitle("Total employment in coastal jobs") +
+  NULL
+```
+***
+
+<br>
+
+
+## Reference point
+
+Our reference point is the average number of jobs over the previous year.
+
+```{r jobs_ref_point}
+
+jobs_cst_ref <- coast_jobs %>%
+  arrange(year) %>%
+  group_by(rgn_id) %>%
+  mutate(coast_jobs_3yr = rollapply(rgn_employment, 3, FUN = mean, align = "right", na.rm=F, partial = T), #calc the three year mean
+         coast_jobs_prev_3yr = lag(coast_jobs_3yr, n = 1), #create a new column that aligns the avg employment from previous three years with the year with which we're comparing.
+         coast_job_growth = ifelse(year %in% c(2005:2007), NA, (rgn_employment/coast_jobs_prev_3yr)-1)) %>%  #assign NA to the first three years in the time series because there is not enough data to calculate this rate. 2007 growth rate *should* be compared to average of 2004-2006. But we don't have that data
+  write_csv("int/coastal_jobs_data.csv")
+
+```
+
+
+**Jobs directly related to ocean in coastal counties**
+
+```{r coastal_jobs_and_ref_point}
+c <- jobs_cst_ref %>%
+  select(rgn_id, year, rgn_employment, rgn_name, coast_jobs_prev_3yr) %>%
+  gather(cat, jobs, -rgn_id,-year, -rgn_name)
+
+ggplot(c, aes(x = year, y = jobs, color = cat)) +
+  geom_line() +
+  facet_wrap(~rgn_name, scales = "free") +
+  ylab("Number of jobs") +
+  xlab("Year") +
+  ggtitle("Regional employment in coastal jobs") +
+  scale_color_manual(" ", labels = c("Mean employment over the \nprevious 3 years","Annual employment"), values = c("red", "blue"))
+```
+
+
+***
+
+#Setting targets
+
+Using Bureau of Labor Statistics data, we can get the nationwide average job growth and use this as our target for coastal job growth.
+
+```{r}
+#devtools::install_github("keberwein/blscrapeR")
+library(blscrapeR)
+#read in API access key that is saved on Mazu
+blsKey <- read_rtf(file.path(dir_M,'git-annex/neprep/keys/BureauofLaborStatistics.rtf'))
+set_bls_key(blsKey, overwrite=TRUE)
+```
+
+```{r bls_us_jobs_stats}
+
+us_employment <- bls_api("ENUUS00010010",
+              startyear = 2001, endyear = 2016, registrationKey = "BLS_KEY", annualaverage=TRUE) %>%
+  as.data.frame() %>%
+  filter(periodName == "Annual") %>%
+  select(year, us_jobs = value) %>%
+  arrange(year) %>%
+  mutate(us_jobs_3yr = rollapply(us_jobs, 3, FUN=mean, align = "right", na.rm=F, partial = T),
+         us_jobs_prev_3yr = lag(us_jobs_3yr, n = 1),
+         us_job_growth = (us_jobs/us_jobs_prev_3yr)-1) %>%
+  select(year, us_job_growth)
+
+ggplot(us_employment, aes(x = year, y = us_job_growth)) +
+  geom_line() +
+  ylab("Job growth compared to previous year")
+
+```
+
+Combine US job growth dataset with the coastal job dataset to make comparisons
+
+```{r}
+
+jobs <- jobs_cst_ref %>%
+  left_join(us_employment) %>%
+  select(year, rgn_id, rgn_name, coast_job_growth, us_job_growth)
+
+write.csv(us_employment, file.path(dir_calc, "layers/le_job_growth.csv"))
+
+```
+
+***
+
+#References
+
+National Ocean Economics Program. Ocean Economic Data by Sector & Industry., ONLINE. 2012.
+Available: http://www.OceanEconomics.org/Market/oceanEcon.asp [3 July 2018]
+
+Bureau of Labor Statistics, U.S. Department of Labor, Quarterly Census of Employment and Wages. 7/24/2016. http://www.bls.gov/cew/](http://www.bls.gov/cew/).

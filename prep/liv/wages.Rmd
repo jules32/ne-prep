@@ -1,0 +1,123 @@
+---
+title: 'Wages data layer preparation'
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+    includes: 
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
+  pdf_document:
+    toc: true
+---
+
+
+``` {r setup, echo=F, message = FALSE, warning = FALSE, results = 'hide'}
+knitr::opts_chunk$set(fig.width = 10, fig.height = 6, fig.path = 'figs/', message = FALSE, warning = FALSE)
+
+dir_git <- '~/github/ne-prep'
+source(file.path(dir_git, 'src/R/common.R'))  ### an OHI-NE specific version of common.R
+
+library(tidyverse)
+library(readxl)
+library(DT)
+#install.packages("striprtf")
+library(striprtf)
+library(zoo)
+
+dir_anx <- file.path(dir_M, 'git-annex/neprep')
+```
+
+#Summary
+
+The wages data layer is calculated using wage data from the [National Ocean Economics Program](http://www.oceaneconomics.org/). NOEP provides data on total wages for jobs that directly or indirectly depend upon the ocean. Annual wage growth is measured by comparing mean annual wages to the  wages of the previous year. The target for mean annual wage growth is set at 3.5%, reflecting the [*Nominal Wage Growth Target*](http://www.epi.org/nominal-wage-tracker/) as set by the Federal Reserve. A score of zero is set to a 40% decline in wages.
+
+***
+
+# Data Source
+
+## National ocean Economics Program (NOEP)
+
+**Downloaded**: [Manually downloaded by state from website](http://www.oceaneconomics.org/Market/ocean/oceanEcon.asp) on July 3, 2018.    
+**Description**:  Total number of jobs and wages per sector for RI, ME, MA, CT, NY and NH counties from 2005 to 2015. The data also include number of establishments and GDP for each sector - state - year.  
+**Native data resolution**: County level     
+**Time range**: 2005 - 2015  
+**Format**:  Tabular  
+
+**NOTES**
+
+The data was cleaned in the `clean_noep_data.R` script.
+
+All wages are reported in 2012 US Dollars.
+
+***
+
+# Wages
+
+The livelihoods wages score, $g'$ is calculated using the following equation;
+
+$$g ' = \frac{\frac{W_{i}}{W_{i-1}}}{{1.035}}$$
+
+where $W_{i}$ is the mean annual wage for regional coastal employment in year *i*, and $W_{i-1}$ is the mean wage for coastal employment for the previous year. The change in wages (${\frac{W_{i}}{W_{i-1}}}$) is then divided by the target, 1.035, representing the 3.5% Nominal Wage Growth Target established by the Federal Reserve.
+
+***
+
+Load the NOEP data and remove the establishments information since we don't need it.
+
+```{r coastal_data}
+noep_data = read_csv("data/clean_noep_data.csv") %>%
+  select(-X1, -rgn_estab)
+```
+
+
+## Coastal wages
+
+Wages are also standardized by total employment to give us a measure of wages per capita as opposed to total wages.
+
+```{r coast_wages}
+coast_wages <- noep_data %>%
+  mutate(wages_per_job = rgn_wages/rgn_employment) %>%
+  select(state, year, rgn_id, rgn_name, wages_per_job)
+
+```
+
+
+```{r coastal_wages_plot}
+ggplot(coast_wages, aes(x = year, y = wages_per_job)) +
+  geom_line() +
+  ylab("Wages (2012 USD$)") +
+  facet_wrap(~ rgn_name, scales = "free") +
+  ggtitle("Wages per capita") +
+  xlab("Year")
+```
+
+We want to know the wage growth rate over time. We calculate this by comparing the wages per job compared to the average of the previous three years.
+
+```{r}
+wages <- coast_wages %>%
+  arrange(year) %>%
+  group_by(rgn_id) %>%
+  mutate(wages_avg_3yr = rollapply(wages_per_job, 3, FUN = mean, align = "right", na.rm = F, partial = T), #calculate the mean for three years
+         wages_prev_3yr = lag(wages_avg_3yr, n = 1), #create a new column that aligns the avg wages from previous three years with the year with which we're comparing.
+         wage_growth_rate = ifelse(year %in% c(2005:2007), NA, (wages_per_job/wages_prev_3yr)-1)) %>% #assign NA to the first three years in the time series because there is not enough data to calculate this rate. 2007 growth rate *should* be compared to average of 2004-2006.
+  write_csv("int/coastal_wage_data.csv") %>%
+  select(state, year, rgn_id, rgn_name, wage_growth_rate)
+
+
+write.csv(wages, file.path(dir_calc, "layers/le_coast_wages.csv"))
+```
+
+***
+
+#References
+
+National Ocean Economics Program. Ocean Economic Data by Sector & Industry., ONLINE. 2012.
+Available: http://www.OceanEconomics.org/Market/oceanEcon.asp [3 July 2018]
+
+
+Bureau of Labor Statistics, U.S. Department of Labor, Quarterly Census of Employment and Wages. 7/24/2016. http://www.bls.gov/cew/](http://www.bls.gov/cew/).
