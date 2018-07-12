@@ -9,7 +9,7 @@
 <meta name="generator" content="pandoc" />
 
 
-<meta name="author" content="Compiled on Tue Jul 10 15:28:51 2018 by afflerbach" />
+<meta name="author" content="Compiled on Thu Jul 12 14:15:12 2018 by afflerbach" />
 
 
 <title>Cleaning up NOEP data</title>
@@ -261,7 +261,7 @@ div.tocify {
 
 
 <h1 class="title toc-ignore">Cleaning up NOEP data</h1>
-<h4 class="author"><em><em>Compiled on Tue Jul 10 15:28:51 2018 by afflerbach</em></em></h4>
+<h4 class="author"><em><em>Compiled on Thu Jul 12 14:15:12 2018 by afflerbach</em></em></h4>
 
 </div>
 
@@ -389,16 +389,18 @@ t &lt;-<span class="st"> </span><span class="kw">map_df</span>(states, meta) <sp
 state_data &lt;-<span class="st"> </span>clean_data <span class="op">%&gt;%</span>
 <span class="st">  </span><span class="kw">filter</span>(<span class="kw">str_detect</span>(County, <span class="st">&quot;All&quot;</span>),
          State <span class="op">%in%</span><span class="st"> </span><span class="kw">c</span>(<span class="st">&quot;Maine&quot;</span>, <span class="st">&quot;Connecticut&quot;</span>, <span class="st">&quot;Rhode Island&quot;</span>)) <span class="op">%&gt;%</span>
-<span class="st">  </span><span class="kw">select</span>(<span class="dt">state =</span> State, <span class="dt">year =</span> Year, rgn_id, rgn_name, <span class="dt">rgn_employment =</span> Employment, <span class="dt">rgn_wages =</span> Wages, <span class="dt">rgn_estab =</span> Establishments)
+<span class="st">  </span><span class="kw">select</span>(<span class="dt">state =</span> State, <span class="dt">year =</span> Year, rgn_id, rgn_name, <span class="dt">rgn_employment =</span> Employment, <span class="dt">rgn_wages =</span> Wages, <span class="dt">rgn_estab =</span> Establishments, <span class="dt">rgn_gdp =</span> GDP)
   
+<span class="co">#select the data for MA, NY and NH</span>
 county_data &lt;-<span class="st"> </span>clean_data <span class="op">%&gt;%</span>
 <span class="st">  </span><span class="kw">filter</span>(<span class="kw">str_detect</span>(County, <span class="st">&quot;All&quot;</span>)<span class="op">==</span><span class="st"> </span><span class="ot">FALSE</span>,
          State <span class="op">%in%</span><span class="st"> </span><span class="kw">c</span>(<span class="st">&quot;Massachusetts&quot;</span>, <span class="st">&quot;New York&quot;</span>, <span class="st">&quot;New Hampshire&quot;</span>)) <span class="op">%&gt;%</span>
 <span class="st">  </span><span class="kw">group_by</span>(rgn_id, Year) <span class="op">%&gt;%</span>
 <span class="st">  </span><span class="kw">mutate</span>(<span class="dt">rgn_employment =</span> <span class="kw">sum</span>(Employment, <span class="dt">na.rm =</span> T),
          <span class="dt">rgn_wages =</span> <span class="kw">sum</span>(Wages, <span class="dt">na.rm =</span> T),
-         <span class="dt">rgn_estab =</span> <span class="kw">sum</span>(Establishments, <span class="dt">na.rm =</span> T)) <span class="op">%&gt;%</span><span class="st"> </span><span class="co">#employment by region</span>
-<span class="st">  </span><span class="kw">select</span>(<span class="dt">state =</span> State, <span class="dt">year =</span> Year, rgn_id, rgn_name, rgn_employment, rgn_wages, rgn_estab) <span class="op">%&gt;%</span>
+         <span class="dt">rgn_estab =</span> <span class="kw">sum</span>(Establishments, <span class="dt">na.rm =</span> T),
+         <span class="dt">rgn_gdp   =</span> <span class="kw">sum</span>(GDP, <span class="dt">na.rm =</span> T)) <span class="op">%&gt;%</span><span class="st"> </span><span class="co">#employment by region</span>
+<span class="st">  </span><span class="kw">select</span>(<span class="dt">state =</span> State, <span class="dt">year =</span> Year, rgn_id, rgn_name, rgn_employment, rgn_wages, rgn_estab, rgn_gdp) <span class="op">%&gt;%</span>
 <span class="st">  </span><span class="kw">distinct</span>()
 
 noep_data_clean &lt;-<span class="st"> </span><span class="kw">bind_rows</span>(state_data, county_data)</code></pre></div>

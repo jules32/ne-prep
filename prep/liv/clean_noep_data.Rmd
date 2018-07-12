@@ -133,16 +133,18 @@ There are some clear discrepancies in the dataset between the total number of jo
 state_data <- clean_data %>%
   filter(str_detect(County, "All"),
          State %in% c("Maine", "Connecticut", "Rhode Island")) %>%
-  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment = Employment, rgn_wages = Wages, rgn_estab = Establishments)
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment = Employment, rgn_wages = Wages, rgn_estab = Establishments, rgn_gdp = GDP)
   
+#select the data for MA, NY and NH
 county_data <- clean_data %>%
   filter(str_detect(County, "All")== FALSE,
          State %in% c("Massachusetts", "New York", "New Hampshire")) %>%
   group_by(rgn_id, Year) %>%
   mutate(rgn_employment = sum(Employment, na.rm = T),
          rgn_wages = sum(Wages, na.rm = T),
-         rgn_estab = sum(Establishments, na.rm = T)) %>% #employment by region
-  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment, rgn_wages, rgn_estab) %>%
+         rgn_estab = sum(Establishments, na.rm = T),
+         rgn_gdp   = sum(GDP, na.rm = T)) %>% #employment by region
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment, rgn_wages, rgn_estab, rgn_gdp) %>%
   distinct()
 
 noep_data_clean <- bind_rows(state_data, county_data)
