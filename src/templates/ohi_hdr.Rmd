@@ -1,0 +1,11 @@
+---
+title: "Create OHI-Northeast header"
+output: html_fragment
+---
+<p align = "center">
+[![ohi logo](ne_banner.png)](http://ohi-science.org)
+<br>
+[OHI-Northeast](http://www.ohi-northeast.org/) |
+[OHI Science](http://ohi-science.org) |
+[Citation policy](http://ohi-science.org/citation-policy/)
+</p>
