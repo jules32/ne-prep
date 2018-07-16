@@ -28,6 +28,7 @@ library(readxl)
 library(DT)
 library(dplyr)
 library(zoo)
+library(trelliscopejs)
 
 dir_anx <- file.path(dir_M, 'git-annex/neprep')
 
@@ -37,11 +38,11 @@ options(digits = 3, scipen = 999)
 
 #Summary
 
-The Gross Domestic Product (GDP) layer is calculated using coastal GDP data from the [National Ocean Economics Program](http://www.oceaneconomics.org/). The target GDP growth rate is between 2-3% (*need citation*) so we will set a 3% target. The minimum will be set at 30% loss.
+The Gross Domestic Product (GDP) layer is calculated using coastal GDP data from the [National Ocean Economics Program](http://www.oceaneconomics.org/).
 
 ***
 
-#Data Sources
+## Data source
 
 ##National ocean Economics Program (NOEP)
 
@@ -54,51 +55,118 @@ The Gross Domestic Product (GDP) layer is calculated using coastal GDP data from
 
 **NOTES**
 
-The data was cleaned in the `liv/clean_noep_data.R` script.
-
-All GDP values are reported in 2012 US Dollars.
+- The data was cleaned in the `liv/clean_noep_data.R` script.  
+- All GDP values are reported in 2012 US Dollars.
 
 ***
 
-# Load data
+## Load data
 
+Read in the NOEP data and remove a couple columns we don't need. We can also filter for "All Ocean Sectors" since this goal is not sector specific.
 
-## Coastal GDP
 
 ```{r coastal_data}
-noep_data = read_csv("../liv/data/clean_noep_data.csv") %>%
-  select(-X1, -rgn_estab, -rgn_employment, -rgn_wages)
+noep_data = read.csv("../liv/data/clean_noep_data.csv") %>%
+  select(-X, -Establishments, -Employment, -Wages) %>%
+  filter(Sector == "All Ocean Sectors")
 ```
 
+## Visualize data
 
-```{r}
-ggplot(noep_data, aes(x = year, y = rgn_gdp)) +
+```{r data_viz}
+ggplot(noep_data, aes(x = Year, y = GDP, color = County)) +
   geom_line() +
-  ylab("Gross Domestic Product (2012 USD$)") +
-  facet_wrap(~ rgn_name, scales = "free") +
-  ggtitle("Gross Domestic Product") +
-  xlab("Year") +
-  theme_bw()
+  theme_bw() +
+  facet_trelliscope(~rgn_name, scales = "free", self_contained = T, width = 800)
 ```
 
+---
+
+## Meta-analysis
+
+To identify some inconsistencies I see in the data, I'm going to take a look at the reported GDP at both the county level and statewide. One would expect that the sum of the county employment values would equal what is reported for the "Statewide" employment values. It seems that this is not the case.
+
+```{r noep_state_vs_county_totals}
+
+states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut")
+
+meta <- function(state){
+  
+  all <- noep_data %>%
+    filter(State == !!state,
+           str_detect(County, "All")) %>%
+    select(Year, GDP) %>%
+    rename(all_ctys_gdp = GDP)
+  
+  out <- noep_data %>%
+    filter(State == !!state,
+           str_detect(County, "All") == FALSE) %>%
+    select(State, County, Year, GDP) %>%
+    group_by(Year) %>%
+    summarize(totals = sum(GDP, na.rm = T)) %>%
+    left_join(all) %>%
+    rename(county_totals = totals,
+           statewide = all_ctys_gdp) %>%
+    gather(key = spatial_res, value = GDP, -Year) %>%
+    mutate(State  = !!state)
+  
+  return(out)
+}
+
+t <- map_df(states, meta) %>%
+  distinct()
+
+ggplot(t, aes(x = Year, y = GDP, color = spatial_res)) +
+  geom_line() +
+  theme_bw() +
+  facet_wrap(~State, scales = "free") +
+  scale_color_manual(" ", labels = c("County", "State"), values = c("blue", "red")) 
+```
+
+There are some clear discrepencies between these two time series. What we see here is similar to what we see when we look at the **jobs** data. We can apply the same logic here [as we did there](https://ohi-northeast.github.io/ne-prep/prep/liv/jobs.html). We will use the County level information for Massachusetts and New Hampshire, and the State level data for the remaining three states.
+
+---
+
+## Assign spatial scale to use
+
+Using the information gained from the meta analysis above, I'm assigning which spatial scale to use for each of the five states. For Maine, Connecticut and Rhode Island we are going to use the State level data, which means we filter for rows that say "All [state] counties" and remove the rest. For Massachusetts and New Hampshire we want to keep only the individual county information and then summarize total number of jobs from that data. Finally we join the two datasets. 
+
+```{r combine_noep_state_county_data}
+
+#select the data for ME, CT and RI, which is going to use the data reported for "All x counties"
+state_data <- noep_data %>%
+  filter(str_detect(County, "All"),
+         State %in% c("Maine", "Connecticut", "Rhode Island")) %>%
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_gdp = GDP)
+  
+#select the data for MA and NH
+county_data <- noep_data %>%
+  filter(str_detect(County, "All")== FALSE,
+         State %in% c("New Hampshire", "Massachusetts")) %>%
+  group_by(rgn_id, Year) %>%
+  mutate(rgn_gdp = sum(GDP, na.rm = T)) %>%  #GDP by region
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_gdp) %>%
+  distinct()
+
+gdp_data_clean <- bind_rows(state_data, county_data)
+
+ggplot(gdp_data_clean, aes(x = year, y = rgn_gdp, color = rgn_name)) +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Year",
+       y = "GDP (2012 $USD)",
+       color = "Region",
+       title = "Gross Domestic Product")
+```
 ***
-
-#Methods
-
-The economies score, $x_{eco}'$, is calculated for each region using the following equation; 
-
-$$x_{eco}' = \frac{\frac{E_{i}}{E_{r}}}{USGDP_{i}}$$
-
-where $E_{i}$ is the total GDP in year *i*, and $E_{r}$ is the mean annual GDP for the previous year. The growth rate, ${\frac{E_{i}}{E_{r}}}$, is compared to the national average GDP growth rate for year *i*.
-
 
 ## Calculate annual growth rate
 
-The annual GDP growth rate is calculated by comparing every year's GDP total to the previous year.
+The annual GDP growth rate is calculated by comparing every year's GDP total to the average of the previous 3 years.
 
 ```{r gdp_ref_point}
 
-gdp <- noep_data %>%
+gdp <- gdp_data_clean %>%
   arrange(year) %>%
   group_by(rgn_id) %>%
   mutate(gdp_avg_3yr = rollapply(rgn_gdp, 3, FUN = mean, align = "right", na.rm = F, partial = T), #calculate the mean for three years
@@ -112,16 +180,18 @@ write.csv(gdp, file.path(dir_calc, "layers/eco_coast_gdp.csv"))
   
 ggplot(gdp%>%filter(!is.na(gdp_growth_rate)), aes(x = year, y = gdp_growth_rate, color = rgn_name)) +
     geom_line() +
-    ylab("Annual GDP growth rate (%)") +
-  geom_hline(yintercept = 0) +
-  theme_bw()
+    labs(y = "Annual GDP growth rate (%)",
+         x = "Year",
+         color = "Region") +
+    geom_hline(yintercept = 0) +
+    theme_bw()
 
 ```
 
 
 ***
 
-#References
+## References
 
 National Ocean Economics Program. Ocean Economic Data by Sector & Industry., ONLINE. 2012.
 Available: http://www.OceanEconomics.org/Market/oceanEcon.asp [3 October 2017]
