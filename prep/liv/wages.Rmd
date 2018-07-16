@@ -3,7 +3,7 @@ title: 'Wages data layer preparation'
 author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
 output: 
   html_document:
-    code_folding: hide
+    code_folding: show
     toc: true
     toc_depth: 3
     toc_float: yes
@@ -29,19 +29,20 @@ library(DT)
 #install.packages("striprtf")
 library(striprtf)
 library(zoo)
+library(trelliscopejs)
 
 dir_anx <- file.path(dir_M, 'git-annex/neprep')
 ```
 
-#Summary
+## Summary
 
 The wages data layer is calculated using wage data from the [National Ocean Economics Program](http://www.oceaneconomics.org/). NOEP provides data on total wages for jobs that directly or indirectly depend upon the ocean. Annual wage growth is measured by comparing mean annual wages to the  wages of the previous year. The target for mean annual wage growth is set at 3.5%, reflecting the [*Nominal Wage Growth Target*](http://www.epi.org/nominal-wage-tracker/) as set by the Federal Reserve. A score of zero is set to a 40% decline in wages.
 
 ***
 
-# Data Source
+## Data Source
 
-## National ocean Economics Program (NOEP)
+### National Ocean Economics Program (NOEP)
 
 **Downloaded**: [Manually downloaded by state from website](http://www.oceaneconomics.org/Market/ocean/oceanEcon.asp) on July 3, 2018.    
 **Description**:  Total number of jobs and wages per sector for RI, ME, MA, CT, NY and NH counties from 2005 to 2015. The data also include number of establishments and GDP for each sector - state - year.  
@@ -49,57 +50,124 @@ The wages data layer is calculated using wage data from the [National Ocean Econ
 **Time range**: 2005 - 2015  
 **Format**:  Tabular  
 
-**NOTES**
+**NOTES**:
 
-The data was cleaned in the `clean_noep_data.R` script.
-
-All wages are reported in 2012 US Dollars.
-
-***
-
-# Wages
-
-The livelihoods wages score, $g'$ is calculated using the following equation;
-
-$$g ' = \frac{\frac{W_{i}}{W_{i-1}}}{{1.035}}$$
-
-where $W_{i}$ is the mean annual wage for regional coastal employment in year *i*, and $W_{i-1}$ is the mean wage for coastal employment for the previous year. The change in wages (${\frac{W_{i}}{W_{i-1}}}$) is then divided by the target, 1.035, representing the 3.5% Nominal Wage Growth Target established by the Federal Reserve.
+- The data was cleaned in the `clean_noep_data.R` script.  
+- All wages are reported in 2012 US Dollars.
 
 ***
 
-Load the NOEP data and remove the establishments information since we don't need it.
+## Data cleaning
 
-```{r coastal_data}
-noep_data = read_csv("data/clean_noep_data.csv") %>%
-  select(-X1, -rgn_estab)
+Read in the cleaned NOEP data.
+
+```{r load_data}
+noep_data = read.csv("data/clean_noep_data.csv") 
 ```
 
-
-## Coastal wages
-
-Wages are also standardized by total employment to give us a measure of wages per capita as opposed to total wages.
-
-```{r coast_wages}
-coast_wages <- noep_data %>%
-  mutate(wages_per_job = rgn_wages/rgn_employment) %>%
-  select(state, year, rgn_id, rgn_name, wages_per_job)
-
-```
-
-
-```{r coastal_wages_plot}
-ggplot(coast_wages, aes(x = year, y = wages_per_job)) +
-  geom_line() +
-  ylab("Wages (2012 USD$)") +
-  facet_wrap(~ rgn_name, scales = "free") +
-  ggtitle("Wages per capita") +
-  xlab("Year")
-```
-
-We want to know the wage growth rate over time. We calculate this by comparing the wages per job compared to the average of the previous three years.
+We want to keep the Wages and the Employment data since we are interested in wages per job. I remove the other columns from the NOEP data and filter for "All Ocean Sectors" since this goal is not sector specific.
 
 ```{r}
-wages <- coast_wages %>%
+coast_wages <- noep_data %>%
+  select(-X, -Establishments, -GDP) %>%
+  filter(Sector == "All Ocean Sectors")
+```
+
+## Visualize data
+
+```{r data_viz}
+ggplot(coast_wages, aes(x = Year, y = Wages, color = County)) +
+  geom_line() +
+  theme_bw() +
+  facet_trelliscope(~rgn_name, scales = "free", width = 800, self_contained = T)
+```
+
+---
+
+### Meta-analysis
+
+To identify some inconsistencies I see in the data, I'm going to take a look at the reported Wages at both the county level and statewide. One would expect that the sum of the county employment values would equal what is reported for the "Statewide" employment values. It seems that this is not the case.
+
+```{r noep_state_vs_county_totals}
+
+states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut")
+
+meta <- function(state){
+  
+  all <- coast_wages %>%
+    filter(State == !!state,
+           str_detect(County, "All")) %>%
+    select(Year, Wages) %>%
+    rename(all_ctys_wages = Wages)
+  
+  out <- coast_wages %>%
+    filter(State == !!state,
+           str_detect(County, "All") == FALSE) %>%
+    select(State, County, Year, Wages) %>%
+    group_by(Year) %>%
+    summarize(totals = sum(Wages, na.rm = T)) %>%
+    left_join(all) %>%
+    rename(county_totals = totals,
+           statewide = all_ctys_wages) %>%
+    gather(key = spatial_res, value = Wages, -Year) %>%
+    mutate(State  = !!state)
+  
+  return(out)
+}
+
+t <- map_df(states, meta) %>%
+  distinct()
+
+ggplot(t, aes(x = Year, y = Wages, color = spatial_res)) +
+  geom_line() +
+  theme_bw() +
+  facet_wrap(~State, scales = "free") +
+  scale_color_manual(" ", labels = c("County", "State"), values = c("blue", "red")) 
+```
+
+There are some clear discrepencies between these two time series. What we see here is similar to what we see when we look at the **jobs** data. We can apply the same logic here [as we did there](https://ohi-northeast.github.io/ne-prep/prep/liv/jobs.html). We will use the County level information for Massachusetts and New Hampshire, and the State level data for the remaining three states.
+
+---
+
+## Assign spatial scale to use
+
+Using the information gained from the meta analysis above, I'm assigning which spatial scale to use for each of the five states. For Maine, Connecticut and Rhode Island we are going to use the State level data, which means we filter for rows that say "All [state] counties" and remove the rest. For Massachusetts and New Hampshire we want to keep only the individual county information and then summarize total number of jobs from that data. Finally we join the two datasets and then calculate the **Wages per job**. 
+
+```{r combine_noep_state_county_data}
+
+#select the data for ME, CT and RI, which is going to use the data reported for "All x counties"
+state_data <- coast_wages %>%
+  filter(str_detect(County, "All"),
+         State %in% c("Maine", "Connecticut", "Rhode Island")) %>%
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment = Employment, rgn_wages = Wages)
+  
+#select the data for MA and NH
+county_data <- coast_wages %>%
+  filter(str_detect(County, "All")== FALSE,
+         State %in% c("New Hampshire", "Massachusetts")) %>%
+  group_by(rgn_id, Year) %>%
+  mutate(rgn_employment = sum(Employment, na.rm = T), #employment by region
+         rgn_wages      = sum(Wages, na.rm = T)) %>%  #wagse by region
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment, rgn_wages) %>%
+  distinct()
+
+wages_data_clean <- bind_rows(state_data, county_data) %>%
+  mutate(wages_per_job = rgn_wages/rgn_employment)
+
+ggplot(wages_data_clean, aes(x = year, y = wages_per_job, color = rgn_name)) +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Year",
+       y = "Wages (2012 $USD)",
+       color = "Region",
+       title = "Average wage per job")
+```
+
+
+We want to know the wage growth rate over time. We calculate this by comparing the wages per job compared to the average of the previous three years. These regional growth rates will be used to score half of the Livelihoods sub-goal score.
+
+```{r}
+wages <- wages_data_clean %>%
   arrange(year) %>%
   group_by(rgn_id) %>%
   mutate(wages_avg_3yr = rollapply(wages_per_job, 3, FUN = mean, align = "right", na.rm = F, partial = T), #calculate the mean for three years
@@ -110,14 +178,19 @@ wages <- coast_wages %>%
 
 
 write.csv(wages, file.path(dir_calc, "layers/le_coast_wages.csv"))
+
+ggplot(wages %>% filter(!is.na(wage_growth_rate)), aes(x = year, y = wage_growth_rate, color = rgn_name)) +
+  geom_hline(yintercept = 0, color = "black") +
+  geom_line() +
+  theme_bw() +
+  labs(y = "Wage Growth Rate",
+       x = "Year",
+       color = "")
 ```
 
 ***
 
-#References
+## References
 
 National Ocean Economics Program. Ocean Economic Data by Sector & Industry., ONLINE. 2012.
 Available: http://www.OceanEconomics.org/Market/oceanEcon.asp [3 July 2018]
-
-
-Bureau of Labor Statistics, U.S. Department of Labor, Quarterly Census of Employment and Wages. 7/24/2016. http://www.bls.gov/cew/](http://www.bls.gov/cew/).

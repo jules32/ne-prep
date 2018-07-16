@@ -90,94 +90,10 @@ clean_data <- out %>%
                                        GDP/2, GDP))
 ```
 
-### Meta-analysis
-
-To identify inconsistencies in the data, we take a look at the reported employment values at both the county level and statewide. One would expect that the sum of the county employment values would equal what is reported for the "Statewide" employment values. It seems that this is not the case.
-
-```{r noep_state_vs_county_totals}
-
-states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut")
-sectors <- unique(clean_data$Sector)[1:6]
-
-meta <- function(state){
-  
-  df <- data.frame()
-  
-  for(i in 1:length(sectors)){
-    
-    sector = sectors[i]
-
-  all <- clean_data %>%
-    filter(State == !!state,
-           Sector == !!sector,
-           str_detect(County, "All")) %>%
-    select(Year, Employment) %>%
-    rename(all_ctys_employment = Employment)
-  
-  out <- clean_data %>%
-    filter(State == !!state,
-           Sector == !!sector,
-           str_detect(County, "All") == FALSE) %>%
-    select(State, County, Year, Employment) %>%
-    group_by(Year) %>%
-    summarize(totals = sum(Employment, na.rm = T)) %>%
-    left_join(all) %>%
-    rename(county_totals = totals,
-           statewide = all_ctys_employment) %>%
-    gather(key = spatial_res, value = Employment, -Year) %>%
-    mutate(State  = !!state,
-           Sector = !!sector)
-  
-  df <- rbind(df, out)
-  }
-  return(df)
-}
-
-t <- map_df(states, meta) %>%
-  distinct()
-
-ggplot(t, aes(x = Year, y = Employment, color = spatial_res))+
-  geom_line() +
-  facet_wrap(~Sector, scales = "free") +
-  scale_color_manual(" ", labels = c("County", "State"), values = c("blue", "red")) +
-  facet_trelliscope(~State, scales = "free", width = 800)
-```
-
-### LEFT OFF HERE ^ NEED TO FIGURE OUT HOW TO BEST SAVE THIS DATA
-
-There are some clear discrepancies in the dataset between the total number of jobs reported at the state level ("statewide") and the sum of all employment numbers at the County level. Massachusetts has a parallel trend, so using either data stream should result in the same final score. New Hampshire has significantly more statewide jobs beginning in 2011 due to data supression up until that point. We can assume that if data were not suppressed pre-2011 statewide, we would also see parallel trends in New Hampshire as well. Operating under that assumption, we can use the county level data. Rhode Island, Connecticut and Maine show low employment numbers in earlier years when adding up at the county level. This could be due to a lack of data. For example, Saghadoc county in Maine has no data up until 2010, when the jump happens. This suggests we should use the statewide data for Maine. There is no missing data in Connecticut or Rhode Island. This might suggest data suppression in those earlier years at the county level. Therefore the statewide data should be used. 
-
-## Assign spatial scale to use
-
-```{r combine_noep_state_county_data}
-
-#select the data for ME, CT and RI, which is going to use the data reported for "All x counties"
-state_data <- clean_data %>%
-  filter(str_detect(County, "All"),
-         State %in% c("Maine", "Connecticut", "Rhode Island")) %>%
-  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment = Employment, rgn_wages = Wages, rgn_estab = Establishments, rgn_gdp = GDP)
-  
-#select the data for MA and NH
-county_data <- clean_data %>%
-  filter(str_detect(County, "All")== FALSE,
-         State %in% c("Massachusetts", "New Hampshire")) %>%
-  group_by(rgn_id, Year) %>%
-  mutate(rgn_employment = sum(Employment, na.rm = T),
-         rgn_wages = sum(Wages, na.rm = T),
-         rgn_estab = sum(Establishments, na.rm = T),
-         rgn_gdp   = sum(GDP, na.rm = T)) %>% #employment by region
-  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment, rgn_wages, rgn_estab, rgn_gdp) %>%
-  distinct()
-
-noep_data_clean <- bind_rows(state_data, county_data)
-```
-
 ## Save
 
 The final output if `clean_noep_data.csv` in the data folder.
 
 ```{r save}
-write.csv(noep_data_clean, "data/clean_noep_data.csv")
+write.csv(clean_data, "data/clean_noep_data.csv")
 ```
-
-

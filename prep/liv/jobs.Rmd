@@ -3,7 +3,7 @@ title: 'Jobs data layer preparation'
 author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
 output: 
   html_document:
-    code_folding: hide
+    code_folding: show
     toc: true
     toc_depth: 3
     toc_float: yes
@@ -17,31 +17,32 @@ output:
 ---
 
 
-``` {r setup, echo=F, message = FALSE, warning = FALSE, results = 'hide'}
+``` {r setup, message = FALSE, warning = FALSE, results = 'hide'}
 knitr::opts_chunk$set(fig.width = 10, fig.height = 6, fig.path = 'figs/', message = FALSE, warning = FALSE)
 
 dir_git <- '~/github/ne-prep'
 source(file.path(dir_git, 'src/R/common.R'))  ### an OHI-NE specific version of common.R
 
 library(tidyverse)
-library(readxl)
-library(DT)
 #install.packages("striprtf")
 library(striprtf)
 library(zoo)
+library(trelliscopejs)
 
 dir_anx <- file.path(dir_M, 'git-annex/neprep')
 ```
 
-#Summary
+## Summary
 
-NOEP provides data on the number of jobs that directly or indirectly depend upon the ocean. Annual job growth is measured by comparing total employment to the previous years employment. The target for region job growth is set to be equal to or greater than the national average, calculated using data from the Bureau of Labor Statistics.
+The jobs data layer is used as an input for the Liveilhoods subgoal. We use data from the [National Ocean Economics Program](http://www.oceaneconomics.org/Market/ocean/oceanEcon.asp) (NOEP). NOEP provides data on the number of jobs that directly or indirectly depend upon the ocean.
+
+We calculated annual job growth rates by comparing total employment to the average number of jobs over the previous 3 years. The target for region job growth is set to be equal to or greater than the national average, calculated using data from the Bureau of Labor Statistics.
 
 ***
 
-# Data Source
+## Data source
 
-## National ocean Economics Program (NOEP)
+#### National Ocean Economics Program (NOEP)
 
 **Downloaded**: [Manually downloaded by state from website](http://www.oceaneconomics.org/Market/ocean/oceanEcon.asp) on July 3, 2018.    
 **Description**:  Total number of jobs and wages per sector for RI, ME, MA, CT, NY and NH counties from 2005 to 2015. The data also include number of establishments and GDP for each sector - state - year.  
@@ -51,56 +52,131 @@ NOEP provides data on the number of jobs that directly or indirectly depend upon
 
 **NOTES**
 
-The data was cleaned in the [`clean_noep_data.R`](https://github.com/OHI-Northeast/ne-prep/blob/gh-pages/prep/liv/clean_noep_data.Rmd) script.
+The data was initially cleaned in the [`clean_noep_data.R`](https://github.com/OHI-Northeast/ne-prep/blob/gh-pages/prep/liv/clean_noep_data.Rmd) script. Further cleaning specifically related to the Employment data takes place in this script.
 
 ***
 
-# Jobs
+## Data cleaning
 
-The livelihoods jobs score, $j '$, is calculated using the following equation; 
+Read in the cleaned NOEP data.
 
-$$j ' = \frac{\frac{C_{i}}{C_{r}}}{\frac{A_{i}}{A_{i-1}}}$$
-
-where $C_{i}$ is the number of coastal jobs in year *i*, $C_{i-1}$ is the average number of coastal jobs for the previous year, ${A_{i}}$ is the total number of jobs nationwide for year *i* and ${A_{i-1}}$ is the average number of jobs nationwide for the previous year.
-
-
-## Coastal jobs
-
-```{r coastal_data}
-noep_data = read_csv("data/clean_noep_data.csv")
+```{r load_data}
+noep_data = read.csv("data/clean_noep_data.csv")
 ```
 
-Select just employment from the NOEP data
+Since we are only interested in the employment data I remove the other columns from the NOEP data and filter for "All Ocean Sectors" since this goal is not sector specific.
 
 ```{r}
 coast_jobs <- noep_data %>%
-  select(-X1, -rgn_wages, -rgn_estab)
+  select(-X, -Wages, -Establishments, -GDP) %>%
+  filter(Sector == "All Ocean Sectors")
 ```
 
-Plot 
+## Visualize data
 
-```{r rgn_coastal_employment}
-ggplot(coast_jobs, aes(x = year, y = rgn_employment)) +
-  geom_line()+
-  facet_wrap(~ rgn_name, scales = "free") +
-  ylab("Number of jobs") + 
-  xlab("Year") +
+```{r data_viz}
+ggplot(coast_jobs, aes(x = Year, y = Employment, color = County)) +
+  geom_line() +
   theme_bw() +
-  ggtitle("Total employment in coastal jobs") +
-  NULL
+  facet_trelliscope(~rgn_name, scales = "free", self_contained = T, width = 800)
 ```
+
+---
+
+### Meta-analysis
+
+To identify some inconsistencies I see in the data, I'm going to take a look at the reported employment values at both the county level and statewide. One would expect that the sum of the county employment values would equal what is reported for the "Statewide" employment values. It seems that this is not the case.
+
+```{r noep_state_vs_county_totals}
+
+states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut")
+
+meta <- function(state){
+  
+  all <- coast_jobs %>%
+    filter(State == !!state,
+           str_detect(County, "All")) %>%
+    select(Year, Employment) %>%
+    rename(all_ctys_employment = Employment)
+  
+  out <- coast_jobs %>%
+    filter(State == !!state,
+           str_detect(County, "All") == FALSE) %>%
+    select(State, County, Year, Employment) %>%
+    group_by(Year) %>%
+    summarize(totals = sum(Employment, na.rm = T)) %>%
+    left_join(all) %>%
+    rename(county_totals = totals,
+           statewide = all_ctys_employment) %>%
+    gather(key = spatial_res, value = Employment, -Year) %>%
+    mutate(State  = !!state)
+  
+  return(out)
+}
+
+t <- map_df(states, meta) %>%
+  distinct()
+
+ggplot(t, aes(x = Year, y = Employment, color = spatial_res)) +
+  geom_line() +
+  theme_bw() +
+  facet_wrap(~State, scales = "free") +
+  scale_color_manual(" ", labels = c("County", "State"), values = c("blue", "red")) 
+```
+
+There are some clear discrepancies in the dataset between the total number of jobs reported at the state level (red lines) and the sum of all employment numbers at the County level (blue lines). Massachusetts shows near-parallel trends in both county and statewide jobs so I am comfortable using the county level data. Since Massachusetts is split into two regions for this assessment, we will need to keep the county resolution of this data.
+
+New Hampshire has significantly more statewide jobs beginning in 2011 due to data supression up until that point. I asked the folks at NOEP about NH specifically:
+
+> "Jamie, These data suppressions can occur at different geographic levels. Industry data that are suppressed at the county level can show up at the state or national level. For N.H. some Marine Transportation industry data are being revealed at the state level after 2010, but not for the counties. This is not uncommon with the BLS QCEW data where the disclosure rules are more strict."
+
+We can assume that if data were not suppressed pre-2011 statewide, we would also see parallel trends in New Hampshire as well. Operating under that assumption, we can use the county level data to calculate job growth rate trends. Rhode Island, Connecticut and Maine show low employment numbers in earlier years when adding up at the county level. This could be due to a lack of data. For example, Saghadoc county in Maine has no data up until 2010, when the jump happens. This suggests we should use the statewide data for Maine. There is no missing data in Connecticut or Rhode Island. This might suggest data suppression in those earlier years at the county level. Therefore the statewide data should be used. 
+
+---
+
+## Assign spatial scale to use
+
+Using the information gained from the meta analysis above, I'm assigning which spatial scale to use for each of the five states. For Maine, Connecticut and Rhode Island we are going to use the State level data, which means we filter for rows that say "All [state] counties" and remove the rest. For Massachusetts and New Hampshire we want to keep only the individual county information and then summarize total number of jobs from that data. Finally we join the two datasets into `jobs_data_clean`.
+
+```{r combine_noep_state_county_data}
+
+#select the data for ME, CT and RI, which is going to use the data reported for "All x counties"
+state_data <- coast_jobs %>%
+  filter(str_detect(County, "All"),
+         State %in% c("Maine", "Connecticut", "Rhode Island")) %>%
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment = Employment)
+  
+#select the data for MA and NH
+county_data <- coast_jobs %>%
+  filter(str_detect(County, "All")== FALSE,
+         State %in% c("New Hampshire", "Massachusetts")) %>%
+  group_by(rgn_id, Year) %>%
+  mutate(rgn_employment = sum(Employment, na.rm = T)) %>% #employment by region
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment) %>%
+  distinct()
+
+jobs_data_clean <- bind_rows(state_data, county_data)
+
+ggplot(jobs_data_clean, aes(x = year, y = rgn_employment, color = rgn_name)) +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Year",
+       y = "Number of jobs",
+       color = "Region")
+```
+
+
 ***
 
-<br>
+## Calculate job growth
 
+We want to calculate job growth rate for each year. To do this, we take the annual employment and divide it by the average employment of the previous 3 years. Since our dataset begins in 2005, we can not get growth rates for the years 2005-2007.
 
-## Reference point
-
-Our reference point is the average number of jobs over the previous year.
+I also save an intermediate file, `coastal_jobs_data.csv`, which shows the actual employment numbers for each year and the average of the previous 3 years.
 
 ```{r jobs_ref_point}
 
-jobs_cst_ref <- coast_jobs %>%
+jobs_cst_ref <- jobs_data_clean %>%
   arrange(year) %>%
   group_by(rgn_id) %>%
   mutate(coast_jobs_3yr = rollapply(rgn_employment, 3, FUN = mean, align = "right", na.rm=F, partial = T), #calc the three year mean
@@ -110,19 +186,20 @@ jobs_cst_ref <- coast_jobs %>%
 
 ```
 
-
-**Jobs directly related to ocean in coastal counties**
+Let's see how the data looks.
 
 ```{r coastal_jobs_and_ref_point}
+
 c <- jobs_cst_ref %>%
   select(rgn_id, year, rgn_employment, rgn_name, coast_jobs_prev_3yr) %>%
-  gather(cat, jobs, -rgn_id,-year, -rgn_name)
+  gather(cat, jobs, -rgn_id, -year, -rgn_name)
 
 ggplot(c, aes(x = year, y = jobs, color = cat)) +
   geom_line() +
   facet_wrap(~rgn_name, scales = "free") +
   ylab("Number of jobs") +
   xlab("Year") +
+  theme_bw() +
   ggtitle("Regional employment in coastal jobs") +
   scale_color_manual(" ", labels = c("Mean employment over the \nprevious 3 years","Annual employment"), values = c("red", "blue"))
 ```
@@ -130,17 +207,21 @@ ggplot(c, aes(x = year, y = jobs, color = cat)) +
 
 ***
 
-#Setting targets
+## Setting targets
 
 Using Bureau of Labor Statistics data, we can get the nationwide average job growth and use this as our target for coastal job growth.
 
-```{r}
+I'm using the `blscrapeR` package and have my own API access key.
+
+```{r, results = 'hide'}
 #devtools::install_github("keberwein/blscrapeR")
 library(blscrapeR)
 #read in API access key that is saved on Mazu
 blsKey <- read_rtf(file.path(dir_M,'git-annex/neprep/keys/BureauofLaborStatistics.rtf'))
 set_bls_key(blsKey, overwrite=TRUE)
 ```
+
+After some researching on the BLS website, I found that the table I am interested in is identified by "**ENUUS00010010**". 
 
 ```{r bls_us_jobs_stats}
 
@@ -157,11 +238,14 @@ us_employment <- bls_api("ENUUS00010010",
 
 ggplot(us_employment, aes(x = year, y = us_job_growth)) +
   geom_line() +
-  ylab("Job growth compared to previous year")
+  labs(x = "Year",
+       y = "Job growth rate",
+       title = "National job growth rate:\ncomparing annual employment to average employment of the previous 3 years") +
+  theme_bw()
 
 ```
 
-Combine US job growth dataset with the coastal job dataset to make comparisons
+Combine US job growth dataset with the coastal job dataset to make comparisons between job growth rates.
 
 ```{r}
 
@@ -173,9 +257,27 @@ write.csv(jobs, file.path(dir_calc, "layers/le_job_growth.csv"))
 
 ```
 
+```{r}
+
+jobs_plot <- jobs %>%
+  gather("series", "rate", na.rm = T, -year, -rgn_id, -rgn_name)
+
+ggplot(jobs_plot, aes(x = year, y = rate, color = series)) +
+  geom_hline(yintercept = 0, color = "black") +
+  geom_line() +
+  facet_wrap(~rgn_name) +
+  theme_bw() +
+  labs(y = "Job Growth Rate",
+       x = "Year",
+       color = "") +
+  scale_color_manual(" ", labels = c("Regional","National"), values = c("red", "blue"))
+```
+
+We see that regional growth rate is often above the national average with some exceptions in Massachusetts-Virginian and New Hampshire. There is a dip in all data series around the years 2008-2010, coinciding with the recession of the time.
+
 ***
 
-#References
+## References
 
 National Ocean Economics Program. Ocean Economic Data by Sector & Industry., ONLINE. 2012.
 Available: http://www.OceanEconomics.org/Market/oceanEcon.asp [3 July 2018]

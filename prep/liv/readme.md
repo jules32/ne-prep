@@ -1,6 +1,6 @@
 ## Ocean Health Index - US Northeast: Livelihoods sub-goal
 
-This folder describes the methods used to prepare data for the Livelihoods sub-goal for the US Northeast OHI assessment. This sub-goal makes up half of the Livelihoods and Economies goal.
+This folder contains scripts that prepare data layers used in the Livelihoods sub-goal (one half of the Livelihoods & Economies goal).
 
 More information about this goal is available [here](http://ohi-science.org/goals/#livelihoods-and-economies).
 
