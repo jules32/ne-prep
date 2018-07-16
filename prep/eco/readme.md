@@ -4,7 +4,10 @@ This folder describes the methods used to prepare data for the Economies sub-goa
 
 More information about this goal is available [here](http://ohi-science.org/goals/#livelihoods-and-economies).
 
-The folders in this file include the metadata, R scripts, and data for each assessement year (i.e., the year the assessment was conducted).  The most current year represents the best available data and methods, and previous years are maintained for archival purposes.
+The `gdp.Rmd` script creates the gdp data layer from NOEP data. The NOEP data is cleaned with [this script](https://ohi-northeast.github.io/ne-prep/prep/liv/clean_noep_data.html) and held in the Livelihoods [data folder](https://github.com/OHI-Northeast/ne-prep/tree/gh-pages/prep/liv/data).
+
+The `int` folder holds intermediate gdp data that may be useful to examine how the layer is created. This is saved here for possible use in the dashboard.
+
 
 Please see our [citation policy](http://ohi-science.org/citation-policy/) if you use OHI data or methods.
 
