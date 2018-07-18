@@ -1,11 +1,34 @@
 ---
-title: "Creating the OHI NE regions"
-author: "Jamie Afflerbach"
-date: "7/17/2018"
-output: html_document
+title: 'Creating the OHI Northeast regions'
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: show
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+    includes: 
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
+  pdf_document:
+    toc: true
 ---
 
-```{r setup, include=FALSE, message = F, warning = F}
+## Summary
+
+This script shows how I made the spatial regions for the Northeast assessment. The end result is a map of 10 distinct regions including state waters and offshore areas. I used a combination of shapefiles including:
+
+- Northeast regional planning boundary  
+- US Exclusive Economic Zone  
+- Ecological Production Units  
+- State waters  
+- State land boundaries  
+
+The final regions file is called `ne_ohi_rgns` and found [here](https://github.com/OHI-Northeast/ne-prep/tree/gh-pages/spatial/shapefiles).
+
+```{r setup, message = F, warning = F, results = 'hide'}
 knitr::opts_chunk$set(fig.width = 10, fig.height = 8, fig.path = 'figs/',
                       echo = FALSE, message = FALSE, warning = FALSE, root.dir = "ohi-northeast")
 
@@ -16,27 +39,13 @@ dir_anx <- file.path(dir_M, 'git-annex/neprep')
 
 library(tidyverse)
 library(sf)
-#library(rgeos)
 ```
 
-
-## US EEZ
-
-Also need to grab the tip of maine and add it to the Scotian Shelf EPU
-```{r}
-
-eez <- st_read(dsn = 'shapefiles',layer = 'ne_eez',quiet=T)%>%
-        st_transform(crs = p4s_nad83)
-
-maine <- st_intersection(eez, st_set_crs(st_as_sf(as(raster::extent(-68,-66,44,45), "SpatialPolygons")), st_crs(eez)))
-
-```
 
 ## Ecological Production Units
 
-The EPU's don't encompass all of Maine's waters up to the border with Canada. I'm using the EEZ to extend the Northernmost EPU to Canada.
 
-```{r epu_extend, eval = F}
+```{r epus, eval = F}
 
 epu <- st_read(file.path(dir_anx, 'spatial/data_for_rgn_options/Extended_EPU'), 'EPU_extended', quiet=T) %>%
          st_transform(p4s_nad83) %>%
@@ -45,6 +54,39 @@ epu <- st_read(file.path(dir_anx, 'spatial/data_for_rgn_options/Extended_EPU'), 
 #cropping epu extent for plotting
 epu <- st_intersection(epu, st_set_crs(st_as_sf(as(raster::extent(-75,-65,39.5,45), "SpatialPolygons")), st_crs(epu)))
 
+ggplot(epu) +
+  geom_sf(aes(fill = longname)) +
+  theme_bw() +
+  labs(fill = "Ecological Production Unit")
+```
+
+The EPU's don't encompass all of Maine's waters up to the border with Canada. I'm using the EEZ to extend the Northernmost EPU to Canada.
+
+## US EEZ
+
+```{r us_eez_ne}
+eez <- st_read(dsn = 'shapefiles',layer = 'ne_eez',quiet=T)%>%
+        st_transform(crs = p4s_nad83)
+
+ggplot(eez) +
+  geom_sf(fill = "lightblue") +
+  labs(title = "Northeast US EEZ") +
+  theme_bw()
+```
+
+We need to use the US EEZ to grab the tip of offshore Maine which will be added to the Scotian Shelf (and then Gulf of Maine EPU later in this script).  
+
+```{r maine_tip}
+maine <- st_intersection(eez, st_set_crs(st_as_sf(as(raster::extent(-68,-66,44,45), "SpatialPolygons")), st_crs(eez)))
+
+ggplot(maine) +
+  geom_sf(fill = "blue") +
+  theme_bw() +
+  labs(title = "Northeastern corner of Maine")
+```
+
+Now we can join the offshore region of Maine to the Scotian Shelf epu.
+```{r, eval = F}
 ss <- epu%>%
          filter(longname == "Scotian Shelf") %>%
          st_union(maine) %>%
@@ -58,39 +100,44 @@ epu_ext <- epu %>%
              rbind(ss) %>%
              st_cast("MULTIPOLYGON")
 
- 
 st_write(epu_ext, "shapefiles/epu_extended.shp", driver = "ESRI Shapefile", delete_layer = T)
 ```
 
-```{r}
+```{r epu_maine_ext}
 epu_ext <- st_read('shapefiles', 'epu_extended', quiet=T)
+
+ggplot(epu_ext) +
+  geom_sf(aes(fill = longname)) +
+  theme_bw() +
+  labs(fill = "Ecological Production Units")
 ```
 
+These look good. The next step is to intersect EPU's with the Northeast ocean planning boundary so that we only have regions within the plan boundary. 
 
-State waters
-```{r}
-state_wa <- st_read(dsn = file.path(dir_anx, 'spatial'), layer = 'StateWaters_wo_rivs_cleaned',quiet=T)%>%
-              st_transform(p4s_nad83)
-```
+## Northeast ocean planning boundary 
 
-Intersect EPU with plan boundary
-
-Get the plan boundary
-```{r ne_roi}
+```{r ne_roi, eval = F}
 #ne study area plus state waters. I had to use this neoceanplanningboundary_polygon shapefile due to weird slivers when mergine the ne_plan_poly with state_wa
 
-ne <- st_read(dsn = file.path(dir_anx, 'spatial'), layer = 'neoceanplanningboundary_polygon',quiet=T) %>%
+ne <- st_read(dsn = file.path(dir_anx, 'spatial'), layer = 'neoceanplanningboundary_polygon', quiet=T) %>%
         st_transform(crs = p4s_nad83) %>%
         group_by(Id) %>%
         summarize() %>%
         st_intersection(., eez)
 
 st_write(ne, dsn = "shapefiles/ne_region_plus_states.shp", driver = "ESRI Shapefile", delete_layer = T)
-
-ne_sa <- st_read(dsn = "shapefiles", layer = "ne_region_plus_states", quiet = T)
 ```
 
+```{r ne_plan_boundary}
+ne_sa <- st_read(dsn = "shapefiles", layer = "ne_region_plus_states", quiet = T)
 
+ggplot(ne_sa) +
+  geom_sf(fill = "lightblue") +
+  theme_bw() +
+  labs(title = "Northeast Ocean Planning Boundary")
+```
+
+Intersect EPU with planning boundary
 
 ```{r, results = 'hide'}
 #epus in the plan boundary (pb)
@@ -103,8 +150,13 @@ st_is_valid(epu_ext)
 epu_pb <- st_intersection(epu_ext, ne_sa) %>%
   select(EPU, longname, geometry) %>%
   distinct()
+```
 
-plot(epu_pb[1])
+```{r}
+ggplot(epu_pb) +
+  geom_sf(aes(fill = longname)) +
+  theme_bw() +
+  labs(fill = "EPU")
 ```
 
 Now I need to absorb the two scotian shelf pieces into gulf of maine
@@ -125,17 +177,36 @@ ggplot(epu_fix) +
 ```
 
 
-We also want the region between the EPU's and the eastern boundary of the NE planning area to be the last offshore region.
+We also want the region between the EPU's and the southeastern boundary of the NE planning area to be the last offshore region.
 
 ```{r}
-
 epu_c <- st_union(epu_fix) 
 
 offshore <- st_difference(ne_sa, epu_c)
-plot(offshore[1])
+
+ggplot(offshore) +
+  geom_sf() +
+  theme_bw()
 ```
 
-For some reason a lot of the coastline is still there. I'm going to create a big buffer from the `state_wa` object and then use that to erase the coast line.
+For some reason a lot of the coastline is still there. I'm going to create a big buffer from a State Waters shapefile and then use that to erase the coast line.
+
+## State waters
+
+We don't want New York in the state waters shapefile anymore so we remove it here.
+
+```{r state_waters}
+state_wa <- st_read(dsn = file.path(dir_anx, 'spatial'), layer = 'StateWaters_wo_rivs_cleaned',quiet=T)%>%
+              st_transform(p4s_nad83) %>%
+  filter(NAME10!="New York")
+
+ggplot(state_wa) +
+  geom_sf(aes(fill = NAME10)) +
+  theme_bw() +
+  labs(fill = "State")
+```
+
+Now I create a buffer from state waters to remove the weird coastline issue from the offshore region.
 
 ```{r}
 state_wa_buff <- st_buffer(state_wa, 0.5)
@@ -145,9 +216,12 @@ st_erase = function(x, y) st_difference(x, st_union(st_combine(y)))
 offshore_rgn <- st_erase(offshore, state_wa_buff) %>%
   mutate(name = "OS",
          longname = "Offshore") %>%
-  select(name, longname, geometry)
+  select(name, longname, geometry) %>%
+  st_crop(xmin = -73, ymin = 37.7, xmax = -65.7, ymax = 41.2) #did this to remove some state islands
 
-plot(offshore_rgn[1])
+ggplot(offshore_rgn) +
+  geom_sf(aes(fill = longname)) +
+  theme_bw() 
 ```
 
 I'm going to join this back to `epu_fix` and then remove state waters
@@ -160,43 +234,46 @@ epus <- epu_fix %>%
 
 ggplot(epus) +
   geom_sf(aes(fill = longname)) +
-  theme_bw()
+  theme_bw() +
+  labs(fill = "Offshore regions")
 
 ```
 
-
-Remove state waters
+Remove state waters from the EPUs since we just want these to be offshore regions.
 
 ```{r}
-## mask out state waters
-s = as(state_wa, 'Spatial')
+## mask out state waters. 
+s = as(state_wa, 'Spatial') #turning state_wa into a spatialpolygonsdataframe
  
 epu_ext_offshore = as(epus, 'Spatial') - s
 
-# mask with states as well
+# mask with states (land boundary) as well
 
 states <- st_read(dsn = 'shapefiles',layer = 'states',quiet=T)%>%
           st_transform(p4s_nad83) %>%
   filter(!NAME %in% c("Pennsylvania","New Jersey"))
 
-states_buffer <-  st_buffer(states, 0.1)
+states_buffer <-  st_buffer(states, 0.05)
 
 e = st_erase(st_as_sf(epu_ext_offshore), states_buffer)
 
-st_write(e, dsn = "shapefiles/offshore_regions.shp", driver = "ESRI Shapefile", delete_layer = T)
+ggplot(e) +
+  geom_sf(aes(fill = longname)) +
+  geom_sf(data = state_wa, aes(fill = NAME10)) +
+  theme_bw()
+
 ```
 
-# State waters
+This isn't perfect yet - the area around long island needs to be assigned to the Mid-Atlantic Bight. I do that later on but for now I'm focusing on State waters.
 
 Now we need to get each state their own waters and have MA split into two.
 
-```{r}
+```{r state_wa_w_mass_split}
 
 #intersect state waters with EPU to get the massachussets split
 int <- st_intersection(epus, state_wa)
 
 state_rgns <- int %>%
-  filter(NAME10 != "New York") %>%
   mutate(rgn_name = 
            case_when(
              NAME10 == "Massachusetts" & longname %in% c("Georges Bank", "Mid-Atlantic Bight") ~ "Massachusetts-Virginian",
@@ -230,14 +307,77 @@ ggplot(ne_ohi_rgns)+
   labs(fill = "Region")
 ```
 
+Almost there! But I need mid-atlantic bight to be right up against NY. I'm going to take just that polygon from the epus and subtract out the State boundaries and Connecticut waters.
+
+```{r}
+
+mab <- epus %>%
+  filter(name == "MAB")
+
+#remove non ny state waters
+st <- ne_ohi_rgns %>%
+  filter(rgn_name %in% c("Connecticut", "Rhode Island", "Massachusetts-Virginian"))
+
+a <- as(mab, 'Spatial') - as(st, 'Spatial')
+
+#remove state boundaries
+b <- a - as(states, 'Spatial')
+
+# need to erase land on CT and RI.
+
+land <- states %>%
+  filter(NAME %in% c("Rhode Island", "Connecticut")) %>%
+  st_buffer(0.05)
+
+mab_out <- st_erase(st_as_sf(b), land)
+
+plot(mab_out[1])
+```
+
+Crop out those pesky RI islands.
+
+```{r}
+
+mab_out <- st_crop(mab_out, xmin = -76, ymin = 39, xmax = -69, ymax = 41.45) %>%
+  rename(rgn_name = longname) %>%
+  mutate(rgn_id = 4) %>%
+  select(-name)
+
+plot(mab_out[1])
+```
+
+## Final regions
+
+Join MAB back to the ne_ohi_rgns, set the CRS and then add one more column, `area`
+
+```{r ne_ohi_rgns}
+#set US Albers equal area CRS - this is what we will use for all spatial data.
+us_alb    <- "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs" 
+
+ne_ohi_rgns_out <- ne_ohi_rgns %>%
+  filter(rgn_name !="Mid-Atlantic Bight") %>%
+  rbind(mab_out) %>%
+  arrange(rgn_id) %>%
+  st_transform(crs = us_alb) %>%
+  mutate(area_m2 = st_area(.),
+         area_km2 = area_m2/1000000) %>%
+  separate(area_km2, into = c("area_km2", "units"), sep = " ") %>%
+  select(-area_m2, -units)
+
+ggplot(ne_ohi_rgns_out) +
+  geom_sf(aes(fill = rgn_name)) +
+  geom_sf(data = states, fill = "beige") +
+  theme_bw() +
+  labs(fill = "OHI NE Regions")
+
+```
 
 
+Looks great! I want to add another column that has area of each region
 
-
-
-
-
-
+```{r}
+st_write(ne_ohi_rgns_out, "shapefiles/ne_ohi_rgns.shp", delete_layer = T)
+```
 
 
 
