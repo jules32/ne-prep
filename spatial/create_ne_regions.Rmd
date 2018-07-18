@@ -1,0 +1,246 @@
+---
+title: "Creating the OHI NE regions"
+author: "Jamie Afflerbach"
+date: "7/17/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE, message = F, warning = F}
+knitr::opts_chunk$set(fig.width = 10, fig.height = 8, fig.path = 'figs/',
+                      echo = FALSE, message = FALSE, warning = FALSE, root.dir = "ohi-northeast")
+
+source('~/github/ne-prep/src/R/common.R') ### an OHI-NE specific version of common.R
+
+dir_git <- '~/github/ohi-northeast'
+dir_anx <- file.path(dir_M, 'git-annex/neprep')
+
+library(tidyverse)
+library(sf)
+#library(rgeos)
+```
+
+
+## US EEZ
+
+Also need to grab the tip of maine and add it to the Scotian Shelf EPU
+```{r}
+
+eez <- st_read(dsn = 'shapefiles',layer = 'ne_eez',quiet=T)%>%
+        st_transform(crs = p4s_nad83)
+
+maine <- st_intersection(eez, st_set_crs(st_as_sf(as(raster::extent(-68,-66,44,45), "SpatialPolygons")), st_crs(eez)))
+
+```
+
+## Ecological Production Units
+
+The EPU's don't encompass all of Maine's waters up to the border with Canada. I'm using the EEZ to extend the Northernmost EPU to Canada.
+
+```{r epu_extend, eval = F}
+
+epu <- st_read(file.path(dir_anx, 'spatial/data_for_rgn_options/Extended_EPU'), 'EPU_extended', quiet=T) %>%
+         st_transform(p4s_nad83) %>%
+         mutate(longname = c('Georges Bank','Gulf of Maine','Scotian Shelf','Mid-Atlantic Bight'))
+
+#cropping epu extent for plotting
+epu <- st_intersection(epu, st_set_crs(st_as_sf(as(raster::extent(-75,-65,39.5,45), "SpatialPolygons")), st_crs(epu)))
+
+ss <- epu%>%
+         filter(longname == "Scotian Shelf") %>%
+         st_union(maine) %>%
+         dplyr::select(EPU, Shape_Leng, Shape_Area, longname, geometry) %>%
+         st_cast("MULTIPOLYGON")
+
+#join back to EPU
+
+epu_ext <- epu %>%
+            filter(EPU != "SS") %>%
+             rbind(ss) %>%
+             st_cast("MULTIPOLYGON")
+
+ 
+st_write(epu_ext, "shapefiles/epu_extended.shp", driver = "ESRI Shapefile", delete_layer = T)
+```
+
+```{r}
+epu_ext <- st_read('shapefiles', 'epu_extended', quiet=T)
+```
+
+
+State waters
+```{r}
+state_wa <- st_read(dsn = file.path(dir_anx, 'spatial'), layer = 'StateWaters_wo_rivs_cleaned',quiet=T)%>%
+              st_transform(p4s_nad83)
+```
+
+Intersect EPU with plan boundary
+
+Get the plan boundary
+```{r ne_roi}
+#ne study area plus state waters. I had to use this neoceanplanningboundary_polygon shapefile due to weird slivers when mergine the ne_plan_poly with state_wa
+
+ne <- st_read(dsn = file.path(dir_anx, 'spatial'), layer = 'neoceanplanningboundary_polygon',quiet=T) %>%
+        st_transform(crs = p4s_nad83) %>%
+        group_by(Id) %>%
+        summarize() %>%
+        st_intersection(., eez)
+
+st_write(ne, dsn = "shapefiles/ne_region_plus_states.shp", driver = "ESRI Shapefile", delete_layer = T)
+
+ne_sa <- st_read(dsn = "shapefiles", layer = "ne_region_plus_states", quiet = T)
+```
+
+
+
+```{r, results = 'hide'}
+#epus in the plan boundary (pb)
+
+st_is_valid(epu_ext, reason = T)
+epu_ext <- st_buffer(epu_ext, 0)
+
+st_is_valid(epu_ext)
+
+epu_pb <- st_intersection(epu_ext, ne_sa) %>%
+  select(EPU, longname, geometry) %>%
+  distinct()
+
+plot(epu_pb[1])
+```
+
+Now I need to absorb the two scotian shelf pieces into gulf of maine
+
+```{r}
+epu_fix <- epu_pb %>%
+  mutate(name = ifelse(EPU == "SS", "GOM", as.character(EPU)),
+         longname = ifelse(EPU == "SS", "Gulf of Maine", as.character(longname))) %>%
+  group_by(name, longname) %>%
+  summarise(do_union=T) %>%
+  st_buffer(0.001)
+
+ggplot(epu_fix) +
+  geom_sf(aes(fill = longname)) +
+  theme_bw() +
+  labs(fill = "Regions",
+       title = "Offshore regions derived from EPUs")
+```
+
+
+We also want the region between the EPU's and the eastern boundary of the NE planning area to be the last offshore region.
+
+```{r}
+
+epu_c <- st_union(epu_fix) 
+
+offshore <- st_difference(ne_sa, epu_c)
+plot(offshore[1])
+```
+
+For some reason a lot of the coastline is still there. I'm going to create a big buffer from the `state_wa` object and then use that to erase the coast line.
+
+```{r}
+state_wa_buff <- st_buffer(state_wa, 0.5)
+
+st_erase = function(x, y) st_difference(x, st_union(st_combine(y)))
+
+offshore_rgn <- st_erase(offshore, state_wa_buff) %>%
+  mutate(name = "OS",
+         longname = "Offshore") %>%
+  select(name, longname, geometry)
+
+plot(offshore_rgn[1])
+```
+
+I'm going to join this back to `epu_fix` and then remove state waters
+
+```{r}
+
+epus <- epu_fix %>%
+  select(-do_union) %>%
+  rbind(offshore_rgn)
+
+ggplot(epus) +
+  geom_sf(aes(fill = longname)) +
+  theme_bw()
+
+```
+
+
+Remove state waters
+
+```{r}
+## mask out state waters
+s = as(state_wa, 'Spatial')
+ 
+epu_ext_offshore = as(epus, 'Spatial') - s
+
+# mask with states as well
+
+states <- st_read(dsn = 'shapefiles',layer = 'states',quiet=T)%>%
+          st_transform(p4s_nad83) %>%
+  filter(!NAME %in% c("Pennsylvania","New Jersey"))
+
+states_buffer <-  st_buffer(states, 0.1)
+
+e = st_erase(st_as_sf(epu_ext_offshore), states_buffer)
+
+st_write(e, dsn = "shapefiles/offshore_regions.shp", driver = "ESRI Shapefile", delete_layer = T)
+```
+
+# State waters
+
+Now we need to get each state their own waters and have MA split into two.
+
+```{r}
+
+#intersect state waters with EPU to get the massachussets split
+int <- st_intersection(epus, state_wa)
+
+state_rgns <- int %>%
+  filter(NAME10 != "New York") %>%
+  mutate(rgn_name = 
+           case_when(
+             NAME10 == "Massachusetts" & longname %in% c("Georges Bank", "Mid-Atlantic Bight") ~ "Massachusetts-Virginian",
+             NAME10 == "Massachusetts" & longname == "Gulf of Maine" ~ "Massachusetts-Gulf of Maine",
+         NAME10 != "Massachusetts" ~ as.character(NAME10))) %>%
+  select(rgn_name, geometry) %>%
+  group_by(rgn_name) %>%
+  summarize()
+
+ggplot(state_rgns)+
+  geom_sf(aes(fill = rgn_name)) +
+  theme_bw()
+
+```
+
+
+Now we combine state regions with offshore
+
+```{r combine}
+
+ne_ohi_rgns <- e %>%
+  rename(rgn_name = longname) %>%
+  select(-name) %>%
+  rbind(state_rgns) %>%
+  mutate(rgn_id = c(1:10))
+
+ggplot(ne_ohi_rgns)+
+  geom_sf(aes(fill = rgn_name)) +
+  geom_sf(data = states, fill = "beige")+
+  theme_bw() +
+  labs(fill = "Region")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
