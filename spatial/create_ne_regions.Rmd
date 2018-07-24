@@ -193,12 +193,9 @@ For some reason a lot of the coastline is still there. I'm going to create a big
 
 ## State waters
 
-We don't want New York in the state waters shapefile anymore so we remove it here.
-
 ```{r state_waters}
 state_wa <- st_read(dsn = file.path(dir_anx, 'spatial'), layer = 'StateWaters_wo_rivs_cleaned',quiet=T)%>%
-              st_transform(p4s_nad83) %>%
-  filter(NAME10!="New York")
+              st_transform(p4s_nad83)
 
 ggplot(state_wa) +
   geom_sf(aes(fill = NAME10)) +
@@ -206,12 +203,32 @@ ggplot(state_wa) +
   labs(fill = "State")
 ```
 
+Trying to erase the hudson river
+
+
+```{r}
+
+states <- st_read(dsn = 'shapefiles',layer = 'states',quiet=T)%>%
+          st_transform(p4s_nad83) %>%
+  filter(!NAME %in% c("Pennsylvania","New Jersey"))
+
+ny <- states %>%
+  filter(STUSPS == "NY")
+
+#crop NY 
+
+ny_crop <- st_crop(ny, xmin = -81, xmax = -73, ymin = 41, ymax = 46)
+
+#erase hudson river from state_Wa
+st_erase = function(x, y) st_difference(x, st_union(st_combine(y)))
+
+state_wa <- st_erase(state_wa, ny_crop)
+
+```
 Now I create a buffer from state waters to remove the weird coastline issue from the offshore region.
 
 ```{r}
 state_wa_buff <- st_buffer(state_wa, 0.5)
-
-st_erase = function(x, y) st_difference(x, st_union(st_combine(y)))
 
 offshore_rgn <- st_erase(offshore, state_wa_buff) %>%
   mutate(name = "OS",
@@ -249,10 +266,6 @@ epu_ext_offshore = as(epus, 'Spatial') - s
 
 # mask with states (land boundary) as well
 
-states <- st_read(dsn = 'shapefiles',layer = 'states',quiet=T)%>%
-          st_transform(p4s_nad83) %>%
-  filter(!NAME %in% c("Pennsylvania","New Jersey"))
-
 states_buffer <-  st_buffer(states, 0.05)
 
 e = st_erase(st_as_sf(epu_ext_offshore), states_buffer)
@@ -263,8 +276,6 @@ ggplot(e) +
   theme_bw()
 
 ```
-
-This isn't perfect yet - the area around long island needs to be assigned to the Mid-Atlantic Bight. I do that later on but for now I'm focusing on State waters.
 
 Now we need to get each state their own waters and have MA split into two.
 
@@ -289,74 +300,20 @@ ggplot(state_rgns)+
 
 ```
 
+## Final regions
 
 Now we combine state regions with offshore
 
-```{r combine}
+```{r ne_ohi_rgns}
+
+#set US Albers equal area CRS - this is what we will use for all spatial data.
+us_alb    <- "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs" 
 
 ne_ohi_rgns <- e %>%
   rename(rgn_name = longname) %>%
   select(-name) %>%
   rbind(state_rgns) %>%
-  mutate(rgn_id = c(1:10))
-
-ggplot(ne_ohi_rgns)+
-  geom_sf(aes(fill = rgn_name)) +
-  geom_sf(data = states, fill = "beige")+
-  theme_bw() +
-  labs(fill = "Region")
-```
-
-Almost there! But I need mid-atlantic bight to be right up against NY. I'm going to take just that polygon from the epus and subtract out the State boundaries and Connecticut waters.
-
-```{r}
-
-mab <- epus %>%
-  filter(name == "MAB")
-
-#remove non ny state waters
-st <- ne_ohi_rgns %>%
-  filter(rgn_name %in% c("Connecticut", "Rhode Island", "Massachusetts-Virginian"))
-
-a <- as(mab, 'Spatial') - as(st, 'Spatial')
-
-#remove state boundaries
-b <- a - as(states, 'Spatial')
-
-# need to erase land on CT and RI.
-
-land <- states %>%
-  filter(NAME %in% c("Rhode Island", "Connecticut")) %>%
-  st_buffer(0.05)
-
-mab_out <- st_erase(st_as_sf(b), land)
-
-plot(mab_out[1])
-```
-
-Crop out those pesky RI islands.
-
-```{r}
-
-mab_out <- st_crop(mab_out, xmin = -76, ymin = 39, xmax = -69, ymax = 41.45) %>%
-  rename(rgn_name = longname) %>%
-  mutate(rgn_id = 4) %>%
-  select(-name)
-
-plot(mab_out[1])
-```
-
-## Final regions
-
-Join MAB back to the ne_ohi_rgns, set the CRS and then add one more column, `area`
-
-```{r ne_ohi_rgns}
-#set US Albers equal area CRS - this is what we will use for all spatial data.
-us_alb    <- "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs" 
-
-ne_ohi_rgns_out <- ne_ohi_rgns %>%
-  filter(rgn_name !="Mid-Atlantic Bight") %>%
-  rbind(mab_out) %>%
+  mutate(rgn_id = c(1:11)) %>%
   arrange(rgn_id) %>%
   st_transform(crs = us_alb) %>%
   mutate(area_m2 = st_area(.),
@@ -364,19 +321,20 @@ ne_ohi_rgns_out <- ne_ohi_rgns %>%
   separate(area_km2, into = c("area_km2", "units"), sep = " ") %>%
   select(-area_m2, -units)
 
-ggplot(ne_ohi_rgns_out) +
+
+ggplot(ne_ohi_rgns) +
   geom_sf(aes(fill = rgn_name)) +
   geom_sf(data = states, fill = "beige") +
   theme_bw() +
   labs(fill = "OHI NE Regions")
-
 ```
+
 
 
 Looks great! I want to add another column that has area of each region
 
 ```{r}
-st_write(ne_ohi_rgns_out, "shapefiles/ne_ohi_rgns.shp", delete_layer = T)
+st_write(ne_ohi_rgns, "shapefiles/ne_ohi_rgns.shp", delete_layer = T)
 ```
 
 
