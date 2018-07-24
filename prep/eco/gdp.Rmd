@@ -88,7 +88,7 @@ To identify some inconsistencies I see in the data, I'm going to take a look at 
 
 ```{r noep_state_vs_county_totals}
 
-states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut")
+states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut", "New York")
 
 meta <- function(state){
   
@@ -136,7 +136,7 @@ Using the information gained from the meta analysis above, I'm assigning which s
 #select the data for ME, CT and RI, which is going to use the data reported for "All x counties"
 state_data <- noep_data %>%
   filter(str_detect(County, "All"),
-         State %in% c("Maine", "Connecticut", "Rhode Island")) %>%
+         State %in% c("Maine", "Connecticut", "Rhode Island", "New York")) %>%
   select(state = State, year = Year, rgn_id, rgn_name, rgn_gdp = GDP)
   
 #select the data for MA and NH
