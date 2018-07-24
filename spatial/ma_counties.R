@@ -17,6 +17,6 @@ df <- data.frame(County = ma_cntys,
                               'Massachusetts-Gulf of Maine',
                               'Massachusetts-Gulf of Maine'
                               ),
-                 rgn_id = c(4,5,5,5,5,5,4,4,4,4))
+                 rgn_id = c(7,8,8,8,8,8,7,7,7,7))
 
-write.csv(df,file = '~/github/ohi-northeast/src/tables/MA_counties.csv')
+write.csv(df,file = '~/github/ne-prep/src/tables/MA_counties.csv')
