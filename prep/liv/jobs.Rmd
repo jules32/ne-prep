@@ -89,7 +89,7 @@ To identify some inconsistencies I see in the data, I'm going to take a look at 
 
 ```{r noep_state_vs_county_totals}
 
-states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut")
+states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut", "New York")
 
 meta <- function(state){
   
@@ -136,14 +136,14 @@ We can assume that if data were not suppressed pre-2011 statewide, we would also
 
 ## Assign spatial scale to use
 
-Using the information gained from the meta analysis above, I'm assigning which spatial scale to use for each of the five states. For Maine, Connecticut and Rhode Island we are going to use the State level data, which means we filter for rows that say "All [state] counties" and remove the rest. For Massachusetts and New Hampshire we want to keep only the individual county information and then summarize total number of jobs from that data. Finally we join the two datasets into `jobs_data_clean`.
+Using the information gained from the meta analysis above, I'm assigning which spatial scale to use for each of the six states. For Maine, Connecticut, New York and Rhode Island we are going to use the State level data, which means we filter for rows that say "All [state] counties" and remove the rest. For Massachusetts and New Hampshire we want to keep only the individual county information and then summarize total number of jobs from that data. Finally we join the two datasets into `jobs_data_clean`.
 
 ```{r combine_noep_state_county_data}
 
-#select the data for ME, CT and RI, which is going to use the data reported for "All x counties"
+#select the data for ME, CT, NY, and RI, which is going to use the data reported for "All x counties"
 state_data <- coast_jobs %>%
   filter(str_detect(County, "All"),
-         State %in% c("Maine", "Connecticut", "Rhode Island")) %>%
+         State %in% c("Maine", "Connecticut", "Rhode Island", "New York")) %>%
   select(state = State, year = Year, rgn_id, rgn_name, rgn_employment = Employment)
   
 #select the data for MA and NH
