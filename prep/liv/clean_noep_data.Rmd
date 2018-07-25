@@ -73,12 +73,15 @@ Since we have two separate Massachusetts regions, we need to split the data acco
 # need to read in the MA counties since they are divided across two bioregions
 
 ma_ctys <- read_csv("~/github/ne-prep/src/tables/MA_counties.csv") %>%
-  select(-X1)
+  select(-X1) %>%
+  mutate(State = "Massachusetts")
 
 clean_data <- out %>%
-        left_join(rgn_data, by = c("State" = "state")) %>%
-        left_join(ma_ctys, by = c("rgn_name", "County", "rgn_id")) %>%
-        mutate(Employment     = ifelse(State == "Massachusetts" & County %in% c("Plymouth", "Barnstable"), 
+        left_join(ma_ctys, by = c("State", "County")) %>% #this creates duplicates for all MA counties
+        mutate(rgn_name = ifelse(is.na(rgn_name), State, rgn_name)) %>%
+        left_join(rgn_data, by = 'rgn_name') %>%
+        mutate(rgn_id = ifelse(is.na(rgn_id.x), rgn_id.y, rgn_id.x),
+               Employment     = ifelse(State == "Massachusetts" & County %in% c("Plymouth", "Barnstable"), 
                                       Employment/2, Employment),
                Establishments = ifelse(State == "Massachusetts" & County %in% c("Plymouth", "Barnstable"), 
                                        Establishments/2, Establishments),
