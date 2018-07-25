@@ -98,12 +98,14 @@ meta <- function(state){
     filter(State == !!state,
            str_detect(County, "All")) %>%
     select(Year, Wages) %>%
+    distinct() %>%
     rename(all_ctys_wages = Wages)
   
   out <- coast_wages %>%
     filter(State == !!state,
            str_detect(County, "All") == FALSE) %>%
     select(State, County, Year, Wages) %>%
+    distinct() %>%
     group_by(Year) %>%
     summarize(totals = sum(Wages, na.rm = T)) %>%
     left_join(all) %>%
