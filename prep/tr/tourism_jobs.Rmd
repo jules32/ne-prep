@@ -1,0 +1,244 @@
+---
+title: 'Tourism jobs data layer preparation'
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: show
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+    includes: 
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
+  pdf_document:
+    toc: true
+---
+
+## Summary
+
+The Tourism & Recreation goal is calculated using coastal employment data from the [National Ocean Economics Program](http://www.oceaneconomics.org/). 
+
+## Setup
+
+``` {r setup, message = FALSE, warning = FALSE, results = 'hide'}
+knitr::opts_chunk$set(fig.width = 8, fig.height = 6, fig.path = 'figs/', message = FALSE, warning = FALSE)
+
+dir_git <- '~/github/ne-prep'
+dir_rgn <- file.path(dir_git, 'prep/regions')  ### github: general buffer region shapefiles
+source(file.path(dir_git, 'src/R/common.R'))  ### an OHIBC specific version of common.R
+
+library(zoo)
+library(trelliscopejs)
+
+dir_anx <- file.path(dir_M, 'git-annex/neprep')
+
+#round to 2 decimals
+options(digits=2)
+
+```
+
+
+## Data source
+
+#### National Ocean Economics Program (NOEP)
+
+**Downloaded**: [Manually downloaded by state from website](http://www.oceaneconomics.org/Market/ocean/oceanEcon.asp) on July 3, 2018.    
+**Description**:  Total number of jobs and wages per sector for RI, ME, MA, CT, NY and NH counties from 2005 to 2015. The data also include number of establishments and GDP for each sector - state - year.  
+**Native data resolution**: County level     
+**Time range**: 2005 - 2015  
+**Format**:  Tabular  
+
+**NOTES**
+
+The data was initially cleaned in the [`clean_noep_data.R`](https://github.com/OHI-Northeast/ne-prep/blob/gh-pages/prep/liv/clean_noep_data.Rmd) script.
+
+
+## Data cleaning
+
+Read in the cleaned NOEP data (held in the Livelihoods folder) and select the Tourism & Recreation Sector only. We are only interested in number of jobs so we can remove the other metrics.
+
+```{r load_data}
+noep_data = read.csv("../liv/data/clean_noep_data.csv") %>%
+  filter(Sector == "Tourism & Recreation") %>%
+  select(-Establishments, -GDP, -Wages, -X, -Source, -Industry)
+```
+
+Visualize
+
+```{r jobs_in_tr_trelliscope}
+ggplot(noep_data) +
+  geom_line(aes(x = Year, y = Employment, color = County)) +
+  theme_bw() +
+  labs(title = "Employment in the Tourism & Recreation Sector") +
+  facet_trelliscope(~rgn_name, scales = 'free', self_contained = TRUE, width = 800)
+```
+
+### Meta-analysis
+
+To identify some inconsistencies I see in the data, I'm going to take a look at the reported Tourism & Recreation employment at both the county level and statewide. One would expect that the sum of the county employment values would equal what is reported for the "Statewide" employment values. It seems that this is not the case.
+
+```{r noep_state_vs_county_totals}
+
+states <-  c("Maine", "New Hampshire", "Rhode Island", "Massachusetts", "Connecticut", "New York")
+
+meta <- function(state){
+  
+  all <- noep_data %>%
+    filter(State == !!state,
+           str_detect(County, "All")) %>%
+    select(Year, Employment) %>%
+    distinct() %>%
+    rename(all_ctys_tr = Employment)
+  
+  out <- noep_data %>%
+    filter(State == !!state,
+           str_detect(County, "All") == FALSE) %>%
+    select(State, County, Year, Employment) %>%
+    distinct() %>%
+    group_by(Year) %>%
+    summarize(totals = sum(Employment, na.rm = T)) %>%
+    left_join(all) %>%
+    rename(county_totals = totals,
+           statewide = all_ctys_tr) %>%
+    gather(key = spatial_res, value = Employment, -Year) %>%
+    mutate(State  = !!state)
+  
+  return(out)
+}
+
+t <- map_df(states, meta) %>%
+  distinct()
+
+ggplot(t, aes(x = Year, y = Employment, color = spatial_res)) +
+  geom_line() +
+  theme_bw() +
+  facet_wrap(~State, scales = "free") +
+  scale_color_manual(" ", labels = c("County", "State"), values = c("blue", "red")) 
+```
+
+
+As with the **jobs** data layer created for Livelihoods, we see clear discrepancies in the dataset between the total number of jobs reported at the state level (red lines) and the sum of all employment numbers at the County level (blue lines) even when filtered just to the Tourism & Recreation sector.
+Massachusetts shows near-parallel trends in both county and statewide jobs so I am comfortable using the county level data. Since Massachusetts is split into two regions for this assessment, we will need to keep the county resolution of this data. New Hampshire and New York have identical time series so we can safely use the State data there. Rhode Island and Maine show low employment numbers in earlier years when adding up at the county level. This could be due to a lack of data. For example, Saghadoc county in Maine has no data up until 2010, when the jump happens. This suggests we should use the statewide data for Maine and Rhode Island. 
+
+There is a weird gap in the Connecticut State time series. I would like to use the State level information for Connecticut, but I will have to gap fill the NA from 2007. 
+
+### Gapfilling Connecticut data
+
+Gapfilling Connecticut's statewide TR data. I'm going to do a simple linear interpolation between the years 2007 and 2009. Since the trend is increasing over the entire time series, I am comfortable using this simplified approach.
+```{r ct_gapfill}
+ct_tr <- noep_data %>% 
+  filter(County == "All Connecticut counties") %>%
+  mutate(Employment = na.approx(Employment))
+```
+
+Now add back in to the `noep_data` set.
+
+```{r}
+tr_data <- noep_data %>%
+  filter(County != "All Connecticut counties") %>%
+  rbind(ct_tr)
+```
+
+
+### Assign spatial scale to use
+
+Using the information gained from the meta analysis above, I'm assigning which spatial scale to use for each of the six states. For all states except MA we are going to use the State level data, which means we filter for rows that say "All [state] counties" and remove the rest. For Massachusetts we want to keep only the individual county information and then summarize total number of jobs from that data.
+
+```{r region_tr_employment_numbers}
+
+#select the data for ME, CT, NY, NH, and RI, which is going to use the data reported for "All x counties"
+state_data <- tr_data %>%
+  filter(str_detect(County, "All"),
+         State %in% c("Maine", "Connecticut", "Rhode Island", "New York", "New Hampshire")) %>%
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment = Employment)
+  
+#select the data for MA
+county_data <- tr_data %>%
+  filter(str_detect(County, "All")== FALSE,
+         State %in% c("Massachusetts")) %>%
+  group_by(rgn_id, Year) %>%
+  mutate(rgn_employment = sum(Employment, na.rm = T)) %>% #employment by region
+  select(state = State, year = Year, rgn_id, rgn_name, rgn_employment) %>%
+  distinct()
+
+tr_data_clean <- bind_rows(state_data, county_data)
+
+ggplot(tr_data_clean, aes(x = year, y = rgn_employment, color = rgn_name)) +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Year",
+       y = "Number of jobs",
+       color = "Region")
+```
+
+
+## Calculate job growth
+
+We want to calculate job growth rate in the Tourism & Recreation sector for each year. To do this, we take the annual employment and divide it by the average employment of the previous 3 years. Since our dataset begins in 2005, we can not get growth rates for the years 2005-2007.
+
+I also save an intermediate file, `coastal_jobs_data.csv`, which shows the actual employment numbers for each year and the average of the previous 3 years.
+
+```{r calc_3yr_avg}
+
+tr_jobs <- tr_data_clean %>%
+  filter(rgn_name != "Massachusetts") %>% #remove the Massachusetts data - these rows are the employment for "All Mass Counties" but we dont need those
+  arrange(year) %>%
+  group_by(rgn_id) %>%
+  mutate(tr_jobs_3yr = rollapply(rgn_employment, 3, FUN = mean, align = "right", na.rm=F, partial = T), #calc the three year mean
+         tr_jobs_prev_3yr = lag(tr_jobs_3yr, n = 1), #create a new column that aligns the avg employment from previous three years with the year with which we're comparing.
+         tr_job_growth = ifelse(year %in% c(2005:2007), NA, (rgn_employment/tr_jobs_prev_3yr)-1)) %>%  #assign NA to the first three years in the time series because there is not enough data to calculate this rate. 2007 growth rate *should* be compared to average of 2004-2006. But we don't have that data
+  write_csv("int/tr_jobs_data.csv")
+
+```
+
+
+### Plot: Employment numbers
+
+Let's see how the data looks.
+
+```{r tr_jobs_annual_vs_avg}
+
+c <- tr_jobs %>%
+  select(rgn_id, year, rgn_employment, rgn_name, tr_jobs_prev_3yr) %>%
+  gather(cat, jobs, -rgn_id, -year, -rgn_name)
+
+ggplot(c, aes(x = year, y = jobs, color = cat)) +
+  geom_line() +
+  facet_wrap(~rgn_name, scales = "free") +
+  ylab("Number of jobs") +
+  xlab("Year") +
+  theme_bw() +
+  ggtitle("Regional employment in the Tourism & Recreation sector") +
+  scale_color_manual(" ", labels = c("Mean employment over the \nprevious 3 years","Annual employment"), values = c("red", "blue"))
+```
+
+### Plot: Tourism & Recreation sector job growth rate
+
+```{r tr_job_growth_rate}
+ggplot(tr_jobs %>% filter(year > 2007), aes(x = year, y = tr_job_growth, color = rgn_name)) +
+  geom_line() +
+  ylab("Job growth rate") +
+  xlab("Year") +
+  theme_bw() +
+  geom_hline(yintercept = 0) +
+  ggtitle("Regional employment in the Tourism & Recreation sector") +
+  labs(color = "Region")
+```
+
+## Save data layer
+
+```{r save_data_layer}
+tr_jobs %>%
+  select(year, rgn_name, rgn_id, tr_job_growth) %>%
+  write.csv(file.path(dir_calc, "layers/tr_job_growth.csv"))
+```
+
+***
+ 
+## References
+
+National Ocean Economics Program. Ocean Economic Data by Sector & Industry., ONLINE. 2012.
+Available: http://www.OceanEconomics.org/Market/oceanEcon.asp [3 July 2018]
+
