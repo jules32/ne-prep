@@ -247,13 +247,20 @@ ggplot(us_employment, aes(x = year, y = us_job_growth)) +
 
 ```
 
-Combine US job growth dataset with the coastal job dataset to make comparisons between job growth rates.
+Combine US job growth dataset with the coastal job dataset to make comparisons between job growth rates. I also add in the offshore regions to the final dataset and assign NA values to `coast_job_growth` and `us_job_growth`
 
 ```{r}
+other_rgns <- data.frame(year = rep(2005:2015, each = 4),
+                         rgn_name = c("Offshore", "Georges Bank", "Gulf of Maine", "Mid-Atlantic Bight"),
+                         rgn_id   = c(1,2,3,4),
+                         coast_job_growth = NA,
+                         us_job_growth = NA)
 
 jobs <- jobs_cst_ref %>%
+  ungroup() %>%
   left_join(us_employment) %>%
-  select(year, rgn_id, rgn_name, coast_job_growth, us_job_growth)
+  select(year, rgn_id, rgn_name, coast_job_growth, us_job_growth) %>%
+  rbind(other_rgns)
 
 write.csv(jobs, file.path(dir_calc, "layers/le_job_growth.csv"))
 

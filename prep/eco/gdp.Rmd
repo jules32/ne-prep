@@ -166,7 +166,13 @@ ggplot(gdp_data_clean, aes(x = year, y = rgn_gdp, color = rgn_name)) +
 
 The annual GDP growth rate is calculated by comparing every year's GDP total to the average of the previous 3 years.
 
+I also add in the four offshore regions to the final data layer. The OHI toolbox needs all regions in each data layer. Since this data isn't relevant offshore, we assign NA values to them.
 ```{r gdp_ref_point}
+
+other_rgns <- data.frame(year     = rep(2005:2015, each = 4),
+                         rgn_id   = c(1,2,3,4),
+                         rgn_name = c("Offshore", "Georges Bank", "Gulf of Maine", "Mid-Atlantic Bight"),
+                         gdp_growth_rate = NA)
 
 gdp <- gdp_data_clean %>%
   arrange(year) %>%
@@ -175,8 +181,9 @@ gdp <- gdp_data_clean %>%
          gdp_prev_3yr = lag(gdp_avg_3yr, n = 1), #create a new column that aligns the avg wages from previous three years with the year with which we're comparing.
          gdp_growth_rate = ifelse(year %in% c(2005:2007), NA, (rgn_gdp/gdp_prev_3yr)-1)) %>% #assign NA to the first three years in the time series because there is not enough data to calculate this rate. 2007 growth rate *should* be compared to average of 2004-2006.
   write_csv("int/coastal_gdp_data.csv") %>%
-  select(state, year, rgn_id, rgn_name, gdp_growth_rate)
-
+  select(year, rgn_id, rgn_name, gdp_growth_rate) %>%
+  ungroup() %>%
+  rbind(other_rgns)
 
 write.csv(gdp, file.path(dir_calc, "layers/eco_coast_gdp.csv"))
   
