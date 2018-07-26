@@ -148,7 +148,8 @@ county_data <- noep_data %>%
   group_by(rgn_id, Year) %>%
   mutate(rgn_gdp = sum(GDP, na.rm = T)) %>%  #GDP by region
   select(state = State, year = Year, rgn_id, rgn_name, rgn_gdp) %>%
-  distinct()
+  distinct() %>%
+  filter(!is.na(rgn_id))
 
 gdp_data_clean <- bind_rows(state_data, county_data)
 

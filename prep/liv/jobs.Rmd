@@ -155,7 +155,8 @@ county_data <- coast_jobs %>%
   group_by(rgn_id, Year) %>%
   mutate(rgn_employment = sum(Employment, na.rm = T)) %>% #employment by region
   select(state = State, year = Year, rgn_id, rgn_name, rgn_employment) %>%
-  distinct()
+  distinct() %>%
+  filter(!is.na(rgn_id)) #remove the Massachusetts state level data. we only want the two MA distinct MA regions
 
 jobs_data_clean <- bind_rows(state_data, county_data)
 
