@@ -1,0 +1,38 @@
+---
+title: "Tourism & Recreation dashboard data"
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: show
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+    includes: 
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
+  pdf_document:
+    toc: true
+---
+
+Creating data layers for use in the data dashboard
+
+```{r setup, include=FALSE, warning = F, message = F}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+
+library(tidyverse)
+```
+
+Filter jobs data from LIV to select just the Tourism & Recreation sector and save in the data folder.
+
+```{r}
+tr_jobs <- read_csv("~/github/ne-prep/prep/liv/data/jobs_sector.csv") %>%
+  select(-X1) %>%
+  filter(Sector == "Tourism & Recreation") %>%
+  write.csv("data/tr_jobs.csv")
+
+```
+
+
+
