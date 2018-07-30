@@ -1,0 +1,122 @@
+---
+title: "Trash data layer"
+author: "*Compiled on `r date()` by `r Sys.info()['user']`*"
+output: 
+  html_document:
+    code_folding: show
+    toc: true
+    toc_depth: 3
+    toc_float: yes
+    number_sections: false
+    theme: cerulean
+    highlight: haddock
+    includes: 
+      in_header: '~/github/ne-prep/src/templates/ohi_hdr.html'
+  pdf_document:
+    toc: true
+---
+
+## Summary
+
+The trash layer is derived from [Ocean Conservancy data](https://oceanconservancy.org/trash-free-seas/international-coastal-cleanup/annual-data-release/)) on the pounds of trash collected on International Coastal Cleanup Day.
+
+```{r setup, message = F, warning = F, reslts = 'hide'}
+
+knitr::opts_chunk$set(fig.width = 10, fig.height = 6, fig.path = 'figs/', message = FALSE, warning = FALSE)
+
+source('~/github/ne-prep/src/R/common.R')
+
+library(tidyverse)
+```
+
+## Data Wrangling
+
+This data was manually copied and pasted from the [Ocean Conservancy website](https://oceanconservancy.org/trash-free-seas/international-coastal-cleanup/annual-data-release/) as it is not provided in an easy to use format. The "raw" data is an excel file with one sheet for each year. There are also some weird issues like a mix of lower and uppercase letters for the states.
+
+The data is filtered to only those states in our regions (NY to Maine) and I add in a column, `pounds_per_person` which calculates the total pounds per volunteer.
+
+```{r read_data}
+clean_func <- function(year) {
+  
+raw <- readxl::read_excel(file.path(dir_anx, "_raw_data/OceanConservancy/CoastalCleanup_Data.xlsx"), sheet = year) %>%
+  mutate(year = as.numeric(year),
+         state = tolower(.[[1]]),
+         people = .[[2]],
+         pounds = as.numeric(.[[3]])) %>% #for some reason one of the sheets was having pounds read in as character. forcing it to numeric here
+  select(year, state, people, pounds) %>%
+  filter(state %in% c("new york", "connecticut", "maine", "massachusetts", "rhode island", "new hampshire")) %>%
+  mutate(pounds_per_person = pounds/people)
+
+return(raw)
+}
+
+years <- as.character(c(2006:2017)) #need to be characters to use years as sheet names in read_excel
+
+out <- map_df(years, clean_func) 
+```
+
+## Visualize data
+
+```{r pounds_pp_per_rgn}
+# I believe NY and NH are missing data from 2011. So I'm adding in NAs
+
+out_gf <- out %>%
+  complete(year, state)
+
+ggplot(out_gf, aes(x = year, y = pounds_per_person, color = state)) +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Year",
+       y = "Pounds per person",
+       title = "Pounds of trash collected on International Coastal Cleanup Day",
+       color = "State")
+```
+
+It looks like we have some more gaps...especially for the year 2015. Unfortunately we will have to gapfill these missing data. We will use linear regression to gapfill.
+
+```{r pounds_pp_per_rgn_gapfilled}
+gapfilled_df <- out_gf %>%
+  group_by(state) %>%
+  mutate(pounds_pp = zoo::na.approx(pounds_per_person)) %>%
+  ungroup() 
+
+ggplot(gapfilled_df, aes(x = year, y = pounds_pp, color = state)) +
+  geom_line() +
+  theme_bw() +
+  labs(x = "Year",
+       y = "Pounds per person",
+       title = "Pounds of trash collected on International Coastal Cleanup Day",
+       color = "State")
+```
+
+## Save layer for toolbox
+
+I need to attach region ID's to each row. All states except Massachusetts match up to a region. Since this data is not broken down to a coarser resolution, both MA regions will get the same score. I also add the offshore regions 1:4 with NA values for the toolbox to run. 
+
+```{r save_layer}
+rgns <- rgn_data %>%
+  data.frame() %>%
+  mutate(state = tolower(state))
+
+gapfilled_df %>%
+  left_join(rgns) %>%
+  select(year, rgn_id, pounds_pp) %>%
+  complete(rgn_id = 1:11, #this adds in regions 1-4 with NA values for pounds_pp
+           year) %>%
+  write.csv(file.path(dir_calc, "layers/cw_trash.csv"))
+```
+
+
+***
+
+## Citation
+
+
+
+
+
+
+
+
+
+
