@@ -26,7 +26,7 @@ library(tidyverse)
 ```
 
 ```{r}
-noep <- read_csv("data/clean_noep_data.csv")
+noep <- read.csv("data/clean_noep_data.csv")
 
 ### jobs data ###
 
