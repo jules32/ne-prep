@@ -57,9 +57,9 @@ us_alb    <- raster::crs("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-
 
 ### useful shapefiles
 #state land boundaries
-ne_states  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'states')
-rgns       <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'ne_ohi_rgns') #need to use path.expand because readOGR does not read '~'
-rgns_simp  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'ne_ohi_rgns_simp') #need to use path.expand because readOGR does not read '~'
+ne_states  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'states', quiet = T)
+rgns       <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'ne_ohi_rgns', quiet = T) #need to use path.expand because readOGR does not read '~'
+rgns_simp  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'ne_ohi_rgns_simp', quiet = T) #need to use path.expand because readOGR does not read '~'
 rgn_data   <- data.frame(rgns) %>% 
   select(-geometry) %>% 
   mutate(rgn_name = as.character(rgn_name),
